@@ -1,98 +1,1226 @@
 (function () {
+    console.log('🚀 Quickie app started!');
+
     // ===== DOM References =====
-    const pairingScreen = document.getElementById('pairingScreen');
-    const chatScreen = document.getElementById('chatScreen');
-    const otpDisplay = document.getElementById('otpDisplay');
-    const createBtn = document.getElementById('createBtn');
-    const joinBtn = document.getElementById('joinBtn');
-    const leaveBtn = document.getElementById('leaveBtn');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const otpInput = document.getElementById('otpInput');
-    const errorMsg = document.getElementById('errorMsg');
+    const loginScreen = document.getElementById('loginScreen');
+    const chatMenu = document.getElementById('chatMenu');
+    const phoneInput = document.getElementById('phoneInput');
+    const generatePinBtn = document.getElementById('generatePinBtn');
+    const recoverPinBtn = document.getElementById('recoverPinBtn');
+    const pinDisplayArea = document.getElementById('pinDisplayArea');
+    const pinDisplay = document.getElementById('pinDisplay');
+    const copyPinBtn = document.getElementById('copyPinBtn');
+    const loginAfterGenerateBtn = document.getElementById('loginAfterGenerateBtn');
+    const loginPinInput = document.getElementById('loginPinInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const friendPinInput = document.getElementById('friendPinInput');
+    const friendNameInput = document.getElementById('friendNameInput');
+    const addFriendBtn = document.getElementById('addFriendBtn');
+    const loginError = document.getElementById('loginError');
+    const userPinDisplay = document.getElementById('userPinDisplay');
+    const userPhoneDisplay = document.getElementById('userPhoneDisplay');
+    const userNameInput = document.getElementById('userNameInput');
+    const saveNameBtn = document.getElementById('saveNameBtn');
+    const pendingList = document.getElementById('pendingList');
+    const chatList = document.getElementById('chatList');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+    const partnerName = document.getElementById('partnerName');
+    const partnerPin = document.getElementById('partnerPin');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
     const messageList = document.getElementById('messageList');
     const chatInput = document.getElementById('chatInput');
     const sendBtn = document.getElementById('sendBtn');
+    const leaveBtn = document.getElementById('leaveBtn');
+    const searchBtn = document.getElementById('searchBtn');
+    const searchBar = document.getElementById('searchBar');
+    const searchInput = document.getElementById('searchInput');
+    const searchCloseBtn = document.getElementById('searchCloseBtn');
+    const searchResults = document.getElementById('searchResults');
+    const emojiBtn = document.getElementById('emojiBtn');
+    const emojiPicker = document.getElementById('emojiPicker');
+    const imageBtn = document.getElementById('imageBtn');
+    const imageInput = document.getElementById('imageInput');
+    const fileBtn = document.getElementById('fileBtn');
+    const fileInput = document.getElementById('fileInput');
+    const voiceBtn = document.getElementById('voiceBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const addFriendFromSidebar = document.getElementById('addFriendFromSidebar');
+    const darkModeToggle = document.getElementById('darkModeToggle');
 
     // ===== State =====
     let socket = null;
-    let currentRoomId = null;
-    let mySocketId = null;
-    let typingTimeout = null;
-    let isTyping = false;
-    let timerInterval = null;
-    let timerSeconds = 120;
-    let messageIdCounter = 0;
-    let replyToMessage = null;
-    let partnerStatus = 'offline';
+    let myPin = null;
+    let myPhone = null;
+    let myName = '';
+    let currentChatId = null;
+    let currentPartnerPin = null;
+    let currentPartnerName = '';
+    let allChats = [];
     let allMessages = [];
+    let pendingRequests = [];
+    let typingTimeout = null;
+    let messageIdCounter = 0;
     let isFirstHistoryLoad = true;
-
-    // ===== Silent Sync State =====
-    let lastSyncTime = 0;
-    let syncInterval = null;
-
-    // ===== Voice Recording State =====
     let mediaRecorder = null;
     let audioChunks = [];
     let recordingTimer = null;
     let recordingSeconds = 0;
     let isRecording = false;
 
-    // ===== Scroll Helper =====
+    // ===== Set Error =====
+    function setError(msg) {
+        loginError.textContent = msg;
+        if (msg) setTimeout(() => { loginError.textContent = ''; }, 5000);
+    }
+
+    // ===== Phone Number Formatting =====
+    function formatPhoneDisplay(phone) {
+        const cleaned = phone.replace(/\D/g, '');
+        if (cleaned.length <= 3) return '+' + cleaned;
+        if (cleaned.length <= 6) return '+' + cleaned.slice(0, 3) + ' ' + cleaned.slice(3);
+        if (cleaned.length <= 9) return '+' + cleaned.slice(0, 3) + ' ' + cleaned.slice(3, 6) + ' ' + cleaned.slice(6);
+        return '+' + cleaned.slice(0, 3) + ' ' + cleaned.slice(3, 6) + ' ' + cleaned.slice(6, 10);
+    }
+
+    function cleanPhone(phone) {
+        return phone.replace(/\s/g, '').replace(/-/g, '');
+    }
+
+    // ===== PIN Generation =====
+    async function handlePinAction(action) {
+        const phone = cleanPhone(phoneInput.value);
+        if (!phone || phone.length < 7) {
+            setError('Please enter a valid phone number');
+            return;
+        }
+
+        try {
+            const res = await fetch(`/pin?phone=${encodeURIComponent(phone)}&action=${action}`);
+            const data = await res.json();
+
+            if (res.ok) {
+                myPin = data.pin;
+                myPhone = phone;
+                pinDisplay.textContent = myPin;
+                pinDisplayArea.classList.remove('hidden');
+                copyPinBtn.classList.remove('hidden');
+                loginAfterGenerateBtn.classList.remove('hidden');
+                setError(data.message);
+
+                if (action === 'generate') {
+                    loginWithPin(myPin);
+                }
+            } else {
+                setError(data.error || 'Something went wrong');
+            }
+        } catch (e) {
+            setError('Network error. Is the server running?');
+        }
+    }
+
+    generatePinBtn.addEventListener('click', () => handlePinAction('generate'));
+    recoverPinBtn.addEventListener('click', () => handlePinAction('recover'));
+
+    copyPinBtn.addEventListener('click', function () {
+        if (myPin) {
+            navigator.clipboard.writeText(myPin).then(() => {
+                setError('✅ PIN copied to clipboard!');
+            }).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = myPin;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                setError('✅ PIN copied to clipboard!');
+            });
+        }
+    });
+
+    loginAfterGenerateBtn.addEventListener('click', function () {
+        if (myPin) {
+            loginWithPin(myPin);
+        }
+    });
+
+    // ===== Login =====
+    loginBtn.addEventListener('click', function () {
+        const pin = loginPinInput.value.trim().toUpperCase();
+        if (!pin || pin.length !== 8) {
+            setError('Please enter a valid 8-character PIN');
+            return;
+        }
+        loginWithPin(pin);
+    });
+
+    loginPinInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            loginBtn.click();
+        }
+    });
+
+    function loginWithPin(pin) {
+        myPin = pin;
+        if (socket && socket.connected) {
+            socket.emit('register', { pin, phone: myPhone, name: myName });
+        } else {
+            connectSocket();
+            socket.once('connect', () => {
+                socket.emit('register', { pin, phone: myPhone, name: myName });
+            });
+        }
+    }
+
+    // ===== Socket Connection =====
+    function connectSocket() {
+        socket = io();
+
+        socket.on('connect', () => {
+            console.log('✅ Socket connected');
+            if (myPin) {
+                socket.emit('register', { pin: myPin, phone: myPhone, name: myName });
+            }
+        });
+
+        socket.on('connect_error', () => {
+            setError('⚠️ Cannot reach server. Make sure server is running.');
+        });
+
+        // ===== Registration Success =====
+        socket.on('registered', ({ pin, name, phone }) => {
+            console.log('✅ Registered:', pin, name);
+            myName = name || '';
+            myPhone = phone || myPhone;
+            loginScreen.style.display = 'none';
+            chatMenu.classList.add('active');
+            userPinDisplay.textContent = pin;
+            if (myPhone) userPhoneDisplay.textContent = myPhone;
+            if (myName) userNameInput.value = myName;
+            setError('');
+            loadChats();
+        });
+
+        // ===== Pending Requests =====
+        socket.on('pending-requests', (requests) => {
+            console.log('📨 Pending requests received:', requests.length);
+            pendingRequests = requests;
+            renderPendingRequests();
+        });
+
+        // ===== New Request =====
+        socket.on('new-request', ({ fromPin, fromName, timestamp }) => {
+            console.log('📨 New request received from:', fromPin, fromName);
+            const exists = pendingRequests.some(r => r.fromPin === fromPin);
+            if (!exists) {
+                pendingRequests.push({ fromPin, fromName, timestamp });
+                renderPendingRequests();
+                playNotificationSound();
+                setError(`📨 New request from ${fromName || fromPin}!`);
+            }
+        });
+
+        // ===== Request Accepted =====
+        socket.on('request-accepted', ({ withPin, withName, chatId }) => {
+            setError(`✅ ${withName || withPin} accepted your request!`);
+            const chat = {
+                pin: withPin,
+                name: withName || withPin,
+                chatId: chatId,
+                lastMessage: 'Chat started!',
+                lastTimestamp: Date.now()
+            };
+            if (!allChats.find(c => c.chatId === chatId)) {
+                allChats.push(chat);
+            }
+            renderChatList();
+            saveChatsToLocal();
+            switchChat(chatId, withPin, withName || withPin);
+            playNotificationSound();
+        });
+
+        // ===== Request Declined =====
+        socket.on('request-declined', ({ byPin, byName }) => {
+            setError(`❌ ${byName || byPin} declined your request.`);
+            pendingRequests = pendingRequests.filter(r => r.fromPin !== byPin);
+            renderPendingRequests();
+        });
+
+        // ===== Request Cancelled =====
+        socket.on('request-cancelled', ({ fromPin }) => {
+            pendingRequests = pendingRequests.filter(r => r.fromPin !== fromPin);
+            renderPendingRequests();
+            setError(`Request to ${fromPin} was cancelled.`);
+        });
+
+        // ===== Request Expired =====
+        socket.on('request-expired', ({ fromPin }) => {
+            if (fromPin) {
+                pendingRequests = pendingRequests.filter(r => r.fromPin !== fromPin);
+                renderPendingRequests();
+                setError(`⏳ Request from ${fromPin} expired.`);
+            }
+        });
+
+        // ===== Chat History =====
+        socket.on('chat-history', ({ chatId, messages }) => {
+            if (isFirstHistoryLoad) {
+                messageList.innerHTML = '';
+                allMessages = [];
+                isFirstHistoryLoad = false;
+            }
+            allMessages = messages || [];
+            allMessages.forEach(msg => {
+                displayMessage(msg);
+            });
+            scrollToBottom();
+        });
+
+        // ===== Text Message =====
+        socket.on('chat-message', (msg) => {
+            if (msg.from === myPin) return;
+            if (msg.deleted) {
+                appendMessage('This message was deleted', 'other', msg.id, msg.timestamp);
+                return;
+            }
+            displayMessage(msg);
+            playNotificationSound();
+        });
+
+        // ===== Image Message =====
+        socket.on('chat-image', (msg) => {
+            if (msg.from === myPin) return;
+            if (msg.deleted) {
+                appendMessage('Image was deleted', 'other', msg.id, msg.timestamp);
+                return;
+            }
+            const messageData = {
+                id: msg.id,
+                image: msg.image,
+                fileName: msg.fileName,
+                from: msg.from,
+                timestamp: msg.timestamp,
+                type: 'image',
+                deleted: false
+            };
+            allMessages.push(messageData);
+            if (msg.chatId === currentChatId) {
+                appendImage(msg.image, 'other', msg.id, msg.timestamp);
+            }
+            updateChatPreview(msg.chatId, '📸 Image', msg.timestamp);
+            playNotificationSound();
+        });
+
+        // ===== File Message =====
+        socket.on('chat-file', (msg) => {
+            if (msg.from === myPin) return;
+            if (msg.deleted) {
+                appendMessage('File was deleted', 'other', msg.id, msg.timestamp);
+                return;
+            }
+            const messageData = {
+                id: msg.id,
+                fileData: msg.fileData,
+                fileName: msg.fileName,
+                fileSize: msg.fileSize,
+                from: msg.from,
+                timestamp: msg.timestamp,
+                type: 'file',
+                deleted: false
+            };
+            allMessages.push(messageData);
+            if (msg.chatId === currentChatId) {
+                appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, 'other', msg.id, msg.timestamp);
+            }
+            updateChatPreview(msg.chatId, `📄 ${msg.fileName}`, msg.timestamp);
+            playNotificationSound();
+        });
+
+        // ===== Voice Message (FIXED) =====
+        socket.on('voice-message', (msg) => {
+            console.log('🎤 Voice message received from:', msg.from, 'duration:', msg.duration);
+            console.log('📊 Audio data available:', msg.audioData ? 'yes' : 'no');
+
+            if (msg.from === myPin) {
+                console.log('⏭️ Skipping own voice message');
+                return;
+            }
+            if (msg.deleted) {
+                appendMessage('Voice was deleted', 'other', msg.id, msg.timestamp);
+                return;
+            }
+
+            const messageData = {
+                id: msg.id,
+                audioData: msg.audioData,
+                duration: msg.duration || 0,
+                from: msg.from,
+                timestamp: msg.timestamp,
+                type: 'voice',
+                deleted: false
+            };
+
+            allMessages.push(messageData);
+
+            if (msg.chatId === currentChatId) {
+                appendVoiceMessage(msg.audioData, msg.duration, 'other', msg.id, msg.timestamp);
+            }
+
+            updateChatPreview(msg.chatId, '🎤 Voice', msg.timestamp);
+            playNotificationSound();
+        });
+
+        // ===== Partner Left =====
+        socket.on('partner-left-chat', ({ chatId }) => {
+            if (chatId === currentChatId) {
+                appendMessage('👋 The other user left this chat', 'system');
+                allChats = allChats.filter(c => c.chatId !== chatId);
+                renderChatList();
+                saveChatsToLocal();
+                if (currentChatId === chatId) {
+                    currentChatId = null;
+                    currentPartnerPin = null;
+                    currentPartnerName = '';
+                    partnerName.textContent = 'Select a chat';
+                    partnerPin.textContent = '';
+                    messageList.innerHTML = '';
+                }
+            }
+        });
+
+        // ===== Chat Deleted =====
+        socket.on('chat-deleted', ({ chatId }) => {
+            allChats = allChats.filter(c => c.chatId !== chatId);
+            renderChatList();
+            saveChatsToLocal();
+            if (currentChatId === chatId) {
+                currentChatId = null;
+                currentPartnerPin = null;
+                currentPartnerName = '';
+                partnerName.textContent = 'Select a chat';
+                partnerPin.textContent = '';
+                messageList.innerHTML = '';
+            }
+        });
+
+        // ===== Typing Indicator =====
+        socket.on('user-typing', ({ chatId, isTyping }) => {
+            if (chatId !== currentChatId) return;
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) {
+                if (isTyping) {
+                    typingIndicator.textContent = '👤 is typing...';
+                    typingIndicator.style.display = 'block';
+                } else {
+                    typingIndicator.style.display = 'none';
+                }
+            }
+        });
+
+        // ===== Name Updated =====
+        socket.on('name-updated', ({ name }) => {
+            myName = name;
+            renderChatList();
+        });
+
+        // ===== Error =====
+        socket.on('error', (msg) => {
+            setError('❌ ' + msg);
+        });
+
+        // ===== Request Sent =====
+        socket.on('request-sent', ({ toPin }) => {
+            setError(`✅ Request sent to ${toPin}!`);
+        });
+
+        // ===== Request Cancelled Success =====
+        socket.on('request-cancelled-success', () => {
+            setError('✅ Request cancelled.');
+        });
+
+        // ===== Request Declined Success =====
+        socket.on('request-declined-success', () => {
+            setError('✅ Request declined.');
+        });
+    }
+
+    // ===== Load Chats =====
+    function loadChats() {
+        const saved = localStorage.getItem('quickie_chats_' + myPin);
+        if (saved) {
+            try {
+                allChats = JSON.parse(saved);
+                renderChatList();
+            } catch (e) {
+                allChats = [];
+            }
+        }
+        if (socket) {
+            socket.emit('get-pending-requests', { pin: myPin });
+        }
+    }
+
+    function saveChatsToLocal() {
+        if (myPin) {
+            localStorage.setItem('quickie_chats_' + myPin, JSON.stringify(allChats));
+        }
+    }
+
+    function updateChatPreview(chatId, message, timestamp) {
+        const chat = allChats.find(c => c.chatId === chatId);
+        if (chat) {
+            chat.lastMessage = message;
+            chat.lastTimestamp = timestamp || Date.now();
+            renderChatList();
+            saveChatsToLocal();
+        }
+    }
+
+    // ===== Render Pending Requests =====
+    function renderPendingRequests() {
+        pendingList.innerHTML = '';
+        if (pendingRequests.length === 0) {
+            pendingList.innerHTML = '<div class="no-requests">No pending requests</div>';
+            return;
+        }
+        pendingRequests.forEach(req => {
+            const item = document.createElement('div');
+            item.className = 'request-item';
+            const time = new Date(req.timestamp);
+            const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            item.innerHTML = `
+        <div class="request-info">
+          <div class="request-name">${req.fromName || req.fromPin}</div>
+          <div class="request-pin">PIN: ${req.fromPin}</div>
+          <div class="request-time">${timeStr}</div>
+        </div>
+        <div class="request-actions">
+          <button class="btn-small accept-btn" data-pin="${req.fromPin}">Accept</button>
+          <button class="btn-small decline-btn" data-pin="${req.fromPin}">Decline</button>
+        </div>
+      `;
+
+            item.querySelector('.accept-btn').addEventListener('click', function () {
+                const fromPin = this.dataset.pin;
+                socket.emit('accept-request', { fromPin, toPin: myPin });
+                pendingRequests = pendingRequests.filter(r => r.fromPin !== fromPin);
+                renderPendingRequests();
+            });
+
+            item.querySelector('.decline-btn').addEventListener('click', function () {
+                const fromPin = this.dataset.pin;
+                socket.emit('decline-request', { fromPin, toPin: myPin });
+                pendingRequests = pendingRequests.filter(r => r.fromPin !== fromPin);
+                renderPendingRequests();
+            });
+
+            pendingList.appendChild(item);
+        });
+    }
+
+    // ===== Render Chat List =====
+    function renderChatList() {
+        chatList.innerHTML = '<div class="section-title">💬 Active Chats</div>';
+
+        if (allChats.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding: 1rem; text-align: center; color: #6b7280; font-size: 0.85rem;';
+            empty.textContent = 'No chats yet. Add a friend to start!';
+            chatList.appendChild(empty);
+            return;
+        }
+
+        const sortedChats = [...allChats].sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
+
+        sortedChats.forEach(chat => {
+            const item = document.createElement('div');
+            item.className = 'chat-item';
+            if (chat.chatId === currentChatId) {
+                item.classList.add('active');
+            }
+
+            const avatar = document.createElement('div');
+            avatar.className = 'chat-item-avatar';
+            avatar.textContent = (chat.name || chat.pin).charAt(0).toUpperCase();
+            avatar.style.background = getColorFromString(chat.pin);
+
+            const info = document.createElement('div');
+            info.className = 'chat-item-info';
+
+            const name = document.createElement('div');
+            name.className = 'chat-item-name';
+            name.innerHTML = `${chat.name || chat.pin} <span class="chat-pin">(${chat.pin})</span>`;
+
+            const preview = document.createElement('div');
+            preview.className = 'chat-item-preview';
+            preview.textContent = chat.lastMessage || 'Start chatting...';
+
+            info.appendChild(name);
+            info.appendChild(preview);
+
+            const right = document.createElement('div');
+            right.className = 'chat-item-right';
+
+            const time = document.createElement('span');
+            time.className = 'chat-item-time';
+            if (chat.lastTimestamp) {
+                time.textContent = formatTime(chat.lastTimestamp);
+            }
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'chat-delete-btn';
+            deleteBtn.textContent = '🗑';
+            deleteBtn.title = 'Delete this chat';
+            deleteBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                if (confirm('Delete this chat? All messages will be permanently deleted.')) {
+                    socket.emit('delete-chat', { chatId: chat.chatId, pin: myPin });
+                    allChats = allChats.filter(c => c.chatId !== chat.chatId);
+                    renderChatList();
+                    saveChatsToLocal();
+                    if (currentChatId === chat.chatId) {
+                        currentChatId = null;
+                        currentPartnerPin = null;
+                        currentPartnerName = '';
+                        partnerName.textContent = 'Select a chat';
+                        partnerPin.textContent = '';
+                        messageList.innerHTML = '';
+                    }
+                }
+            });
+
+            right.appendChild(time);
+            right.appendChild(deleteBtn);
+
+            item.appendChild(avatar);
+            item.appendChild(info);
+            item.appendChild(right);
+
+            item.addEventListener('click', function () {
+                switchChat(chat.chatId, chat.pin, chat.name || chat.pin);
+                closeSidebar();
+            });
+
+            chatList.appendChild(item);
+        });
+    }
+
+    // ===== Switch Chat =====
+    function switchChat(chatId, pin, name) {
+        currentChatId = chatId;
+        currentPartnerPin = pin;
+        currentPartnerName = name;
+        partnerName.textContent = name || pin;
+        partnerPin.textContent = pin;
+        messageList.innerHTML = '';
+        allMessages = [];
+        isFirstHistoryLoad = true;
+
+        socket.emit('get-chat-history', { chatId });
+        renderChatList();
+    }
+
+    // ===== Add Friend =====
+    addFriendBtn.addEventListener('click', function () {
+        const toPin = friendPinInput.value.trim().toUpperCase();
+        const fromName = friendNameInput.value.trim() || myName || 'User';
+
+        if (!toPin || toPin.length !== 8) {
+            setError('Please enter a valid 8-character PIN');
+            return;
+        }
+        if (toPin === myPin) {
+            setError('You cannot add yourself!');
+            return;
+        }
+
+        socket.emit('send-request', { fromPin: myPin, toPin, fromName });
+        setError(`📤 Request sent to ${toPin}`);
+        friendPinInput.value = '';
+        friendNameInput.value = '';
+    });
+
+    friendPinInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            addFriendBtn.click();
+        }
+    });
+
+    // ===== Logout =====
+    logoutBtn.addEventListener('click', function () {
+        if (confirm('Logout?')) {
+            myPin = null;
+            myPhone = null;
+            myName = '';
+            allChats = [];
+            allMessages = [];
+            pendingRequests = [];
+            currentChatId = null;
+            currentPartnerPin = null;
+            currentPartnerName = '';
+            chatMenu.classList.remove('active');
+            loginScreen.style.display = 'flex';
+            loginPinInput.value = '';
+            loginPinInput.focus();
+            pinDisplay.textContent = '- - - - - - - -';
+            pinDisplayArea.classList.add('hidden');
+            copyPinBtn.classList.add('hidden');
+            loginAfterGenerateBtn.classList.add('hidden');
+            if (socket) socket.disconnect();
+            localStorage.removeItem('quickie_chats_' + myPin);
+        }
+    });
+
+    // ===== Add Friend from Sidebar =====
+    addFriendFromSidebar.addEventListener('click', function () {
+        closeSidebar();
+        loginScreen.style.display = 'flex';
+        chatMenu.classList.remove('active');
+        friendPinInput.focus();
+    });
+
+    // ===== Save Name =====
+    saveNameBtn.addEventListener('click', function () {
+        const name = userNameInput.value.trim();
+        if (name) {
+            myName = name;
+            if (socket && socket.connected) {
+                socket.emit('update-name', { pin: myPin, name });
+            }
+            setError('✅ Name saved!');
+        }
+    });
+
+    // ===== Sidebar Controls =====
+    function openSidebar() {
+        sidebar.classList.add('open');
+        sidebarOverlay.classList.add('show');
+    }
+
+    function closeSidebar() {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('show');
+    }
+
+    function toggleSidebar() {
+        if (sidebar.classList.contains('open')) {
+            closeSidebar();
+        } else {
+            openSidebar();
+        }
+    }
+
+    sidebarToggle.addEventListener('click', toggleSidebar);
+    sidebarCloseBtn.addEventListener('click', closeSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+
+    // ===== Send Message =====
+    function sendMessage() {
+        const text = chatInput.value.trim();
+        if (!text || !currentChatId || !socket) return;
+
+        const messageId = ++messageIdCounter;
+        const messageData = {
+            id: messageId,
+            text: text,
+            from: myPin,
+            timestamp: Date.now(),
+            type: 'text',
+            deleted: false
+        };
+
+        allMessages.push(messageData);
+        appendMessage(text, 'me', messageId);
+
+        const chat = allChats.find(c => c.chatId === currentChatId);
+        if (chat) {
+            chat.lastMessage = text;
+            chat.lastTimestamp = Date.now();
+            renderChatList();
+            saveChatsToLocal();
+        }
+
+        socket.emit('chat-message', {
+            chatId: currentChatId,
+            text,
+            messageId,
+            fromPin: myPin
+        });
+
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+        chatInput.focus();
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    chatInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    chatInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
+
+        if (currentChatId && socket) {
+            const hasText = this.value.trim().length > 0;
+            socket.emit('typing', { chatId: currentChatId, isTyping: hasText, fromPin: myPin });
+            if (typingTimeout) clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                socket.emit('typing', { chatId: currentChatId, isTyping: false, fromPin: myPin });
+            }, 2000);
+        }
+    });
+
+    // ===== Leave Chat =====
+    leaveBtn.addEventListener('click', function () {
+        if (!currentChatId) return;
+        if (confirm('Leave this chat?')) {
+            allChats = allChats.filter(c => c.chatId !== currentChatId);
+            renderChatList();
+            saveChatsToLocal();
+            currentChatId = null;
+            currentPartnerPin = null;
+            currentPartnerName = '';
+            partnerName.textContent = 'Select a chat';
+            partnerPin.textContent = '';
+            messageList.innerHTML = '';
+        }
+    });
+
+    // ===== Search =====
+    searchBtn.addEventListener('click', function () {
+        searchBar.classList.toggle('show');
+        if (searchBar.classList.contains('show')) {
+            searchInput.focus();
+        } else {
+            searchInput.value = '';
+            searchResults.classList.remove('show');
+        }
+    });
+
+    searchCloseBtn.addEventListener('click', function () {
+        searchBar.classList.remove('show');
+        searchInput.value = '';
+        searchResults.classList.remove('show');
+    });
+
+    searchInput.addEventListener('input', function () {
+        const query = this.value.trim();
+        if (!query) {
+            searchResults.classList.remove('show');
+            return;
+        }
+
+        const results = allMessages.filter(msg =>
+            msg.type === 'text' && !msg.deleted && msg.text && msg.text.toLowerCase().includes(query.toLowerCase())
+        );
+
+        searchResults.innerHTML = '';
+        if (results.length === 0) {
+            searchResults.innerHTML = '<div class="search-no-results">No messages found</div>';
+            searchResults.classList.add('show');
+            return;
+        }
+
+        results.forEach(msg => {
+            const item = document.createElement('div');
+            item.className = 'search-result-item';
+            const highlightedText = msg.text.replace(
+                new RegExp(query, 'gi'),
+                match => `<span class="highlight">${match}</span>`
+            );
+            const sender = msg.from === myPin ? 'You' : (currentPartnerName || 'Partner');
+            const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            item.innerHTML = `
+        <div class="result-sender">${sender} · ${time}</div>
+        <div>${highlightedText}</div>
+      `;
+            item.addEventListener('click', function () {
+                const wrapper = document.querySelector(`[data-message-id="${msg.id}"]`);
+                if (wrapper) {
+                    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    wrapper.style.background = 'rgba(79, 70, 229, 0.1)';
+                    setTimeout(() => { wrapper.style.background = ''; }, 2000);
+                }
+                searchBar.classList.remove('show');
+                searchResults.classList.remove('show');
+                searchInput.value = '';
+            });
+            searchResults.appendChild(item);
+        });
+        searchResults.classList.add('show');
+    });
+
+    searchInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            searchBar.classList.remove('show');
+            searchResults.classList.remove('show');
+            searchInput.value = '';
+        }
+    });
+
+    // ===== Display Message =====
+    function displayMessage(msg) {
+        if (msg.deleted) {
+            appendMessage('This message was deleted', 'other', msg.id, msg.timestamp);
+            return;
+        }
+        const type = msg.from === myPin ? 'me' : 'other';
+        if (msg.type === 'image') {
+            appendImage(msg.image, type, msg.id, msg.timestamp);
+        } else if (msg.type === 'voice') {
+            appendVoiceMessage(msg.audioData, msg.duration, type, msg.id, msg.timestamp);
+        } else if (msg.type === 'file') {
+            appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, type, msg.id, msg.timestamp);
+        } else {
+            appendMessage(msg.text, type, msg.id, msg.timestamp);
+        }
+    }
+
+    // ===== Append Text Message =====
+    function appendMessage(text, type, messageId = null, timestamp = null) {
+        if (!messageList) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper';
+        if (messageId) wrapper.dataset.messageId = messageId;
+
+        const div = document.createElement('div');
+        div.className = 'message ' + type;
+        if (text === 'This message was deleted') {
+            div.classList.add('deleted');
+        }
+
+        const content = document.createElement('div');
+        content.textContent = text;
+        div.appendChild(content);
+
+        const time = document.createElement('span');
+        time.className = 'timestamp';
+        if (timestamp) {
+            const date = new Date(timestamp);
+            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            const now = new Date();
+            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        div.appendChild(time);
+
+        wrapper.appendChild(div);
+        messageList.appendChild(wrapper);
+        scrollToBottom();
+    }
+
+    // ===== Append Image Message =====
+    function appendImage(imageData, type, messageId = null, timestamp = null) {
+        if (!messageList) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper';
+        if (messageId) wrapper.dataset.messageId = messageId;
+
+        const div = document.createElement('div');
+        div.className = 'message ' + type;
+
+        const img = document.createElement('img');
+        img.src = imageData;
+        img.style.maxWidth = '200px';
+        img.style.maxHeight = '200px';
+        img.style.borderRadius = '8px';
+        img.style.cursor = 'pointer';
+        img.addEventListener('click', () => openImageModal(imageData));
+        div.appendChild(img);
+
+        const time = document.createElement('span');
+        time.className = 'timestamp';
+        if (timestamp) {
+            const date = new Date(timestamp);
+            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            const now = new Date();
+            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        div.appendChild(time);
+
+        wrapper.appendChild(div);
+        messageList.appendChild(wrapper);
+        scrollToBottom();
+    }
+
+    // ===== Append Voice Message (FIXED) =====
+    function appendVoiceMessage(audioData, duration, type, messageId = null, timestamp = null) {
+        if (!messageList) return;
+
+        console.log('📊 Displaying voice message, type:', type, 'duration:', duration);
+        console.log('📊 Audio data available:', audioData ? 'yes' : 'no');
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper';
+        if (messageId) wrapper.dataset.messageId = messageId;
+
+        const div = document.createElement('div');
+        div.className = 'message ' + type;
+
+        // Create audio player
+        const audioContainer = document.createElement('div');
+        audioContainer.style.display = 'flex';
+        audioContainer.style.alignItems = 'center';
+        audioContainer.style.gap = '0.5rem';
+        audioContainer.style.flexWrap = 'wrap';
+
+        // Play button
+        const playBtn = document.createElement('button');
+        playBtn.textContent = '▶️';
+        playBtn.style.background = 'none';
+        playBtn.style.border = 'none';
+        playBtn.style.fontSize = '1.5rem';
+        playBtn.style.cursor = 'pointer';
+        playBtn.style.padding = '0.2rem';
+        playBtn.className = 'voice-play-btn';
+
+        // Create audio element
+        const audioEl = document.createElement('audio');
+        audioEl.style.display = 'none';
+
+        // Check if audioData is valid
+        let audioUrl = null;
+        if (audioData && typeof audioData === 'string') {
+            if (audioData.startsWith('data:audio')) {
+                audioUrl = audioData;
+            } else if (audioData.startsWith('data:application')) {
+                // Some browsers may send as application/octet-stream
+                audioUrl = 'data:audio/webm;codecs=opus;base64,' + audioData.split(',')[1] || audioData;
+            } else {
+                // Assume it's base64 without the data URL prefix
+                audioUrl = 'data:audio/webm;codecs=opus;base64,' + audioData;
+            }
+        }
+
+        if (audioUrl) {
+            audioEl.src = audioUrl;
+            console.log('✅ Audio URL set successfully');
+        } else {
+            console.warn('⚠️ Invalid audio data for message:', messageId);
+            // Show a fallback
+            const fallback = document.createElement('span');
+            fallback.textContent = '🎤 Voice message (unavailable)';
+            fallback.style.opacity = '0.5';
+            fallback.style.fontSize = '0.85rem';
+            audioContainer.appendChild(fallback);
+            div.appendChild(audioContainer);
+
+            const time = document.createElement('span');
+            time.className = 'timestamp';
+            if (timestamp) {
+                const date = new Date(timestamp);
+                time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else {
+                const now = new Date();
+                time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            div.appendChild(time);
+
+            wrapper.appendChild(div);
+            messageList.appendChild(wrapper);
+            scrollToBottom();
+            return;
+        }
+
+        let isPlaying = false;
+
+        // Toggle play/pause
+        playBtn.addEventListener('click', function () {
+            if (isPlaying) {
+                audioEl.pause();
+                this.textContent = '▶️';
+                isPlaying = false;
+            } else {
+                // Stop any other playing audio
+                document.querySelectorAll('.message audio').forEach(function (a) {
+                    if (a !== audioEl && !a.paused) {
+                        a.pause();
+                        const btn = a.closest('.message-wrapper')?.querySelector('.voice-play-btn');
+                        if (btn) btn.textContent = '▶️';
+                    }
+                });
+                audioEl.play().catch(function (err) {
+                    console.error('❌ Play error:', err);
+                    playBtn.textContent = '❌';
+                    setTimeout(function () {
+                        playBtn.textContent = '▶️';
+                    }, 2000);
+                });
+                this.textContent = '⏸️';
+                isPlaying = true;
+            }
+        });
+
+        audioEl.addEventListener('ended', function () {
+            playBtn.textContent = '▶️';
+            isPlaying = false;
+        });
+
+        audioEl.addEventListener('error', function (e) {
+            console.error('❌ Audio playback error:', e);
+            console.error('❌ Audio URL:', audioEl.src ? 'set' : 'not set');
+            playBtn.textContent = '❌';
+            setTimeout(function () {
+                playBtn.textContent = '▶️';
+            }, 2000);
+        });
+
+        audioEl.addEventListener('loadedmetadata', function () {
+            console.log('✅ Audio loaded, duration:', this.duration);
+        });
+
+        // Duration
+        const durationSpan = document.createElement('span');
+        const mins = Math.floor(duration / 60);
+        const secs = Math.floor(duration % 60);
+        durationSpan.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        durationSpan.style.fontSize = '0.8rem';
+        durationSpan.style.opacity = '0.7';
+        durationSpan.style.minWidth = '35px';
+
+        // Progress bar
+        const progressBar = document.createElement('input');
+        progressBar.type = 'range';
+        progressBar.min = 0;
+        progressBar.max = 100;
+        progressBar.value = 0;
+        progressBar.style.flex = '1';
+        progressBar.style.minWidth = '60px';
+        progressBar.style.maxWidth = '120px';
+        progressBar.style.height = '4px';
+        progressBar.style.cursor = 'pointer';
+        progressBar.style.accentColor = '#4f46e5';
+
+        audioEl.addEventListener('timeupdate', function () {
+            if (this.duration) {
+                progressBar.value = (this.currentTime / this.duration) * 100;
+            }
+        });
+
+        progressBar.addEventListener('input', function () {
+            if (audioEl.duration) {
+                audioEl.currentTime = (this.value / 100) * audioEl.duration;
+            }
+        });
+
+        audioContainer.appendChild(playBtn);
+        audioContainer.appendChild(progressBar);
+        audioContainer.appendChild(durationSpan);
+        audioContainer.appendChild(audioEl);
+
+        div.appendChild(audioContainer);
+
+        const time = document.createElement('span');
+        time.className = 'timestamp';
+        if (timestamp) {
+            const date = new Date(timestamp);
+            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            const now = new Date();
+            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        div.appendChild(time);
+
+        wrapper.appendChild(div);
+        messageList.appendChild(wrapper);
+        scrollToBottom();
+    }
+
+    // ===== Append File Message =====
+    function appendFileMessage(fileData, fileName, fileSize, type, messageId = null, timestamp = null) {
+        if (!messageList) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message-wrapper';
+        if (messageId) wrapper.dataset.messageId = messageId;
+
+        const div = document.createElement('div');
+        div.className = 'message ' + type;
+
+        const icon = document.createElement('span');
+        icon.textContent = '📄';
+        icon.style.fontSize = '1.5rem';
+        icon.style.marginRight = '0.5rem';
+        div.appendChild(icon);
+
+        const info = document.createElement('span');
+        info.textContent = `${fileName} (${fileSize})`;
+        info.style.fontSize = '0.85rem';
+        div.appendChild(info);
+
+        const downloadBtn = document.createElement('button');
+        downloadBtn.textContent = '⬇️';
+        downloadBtn.style.background = 'none';
+        downloadBtn.style.border = 'none';
+        downloadBtn.style.fontSize = '1.2rem';
+        downloadBtn.style.cursor = 'pointer';
+        downloadBtn.style.marginLeft = '0.5rem';
+        downloadBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = fileData;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+        div.appendChild(downloadBtn);
+
+        const time = document.createElement('span');
+        time.className = 'timestamp';
+        if (timestamp) {
+            const date = new Date(timestamp);
+            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            const now = new Date();
+            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        div.appendChild(time);
+
+        wrapper.appendChild(div);
+        messageList.appendChild(wrapper);
+        scrollToBottom();
+    }
+
     function scrollToBottom() {
         if (messageList) {
             messageList.scrollTop = messageList.scrollHeight;
         }
     }
 
-    // ===== Save/Restore Room =====
-    function saveRoomId(roomId) {
-        if (roomId) {
-            sessionStorage.setItem('quickie_roomId', roomId);
+    function getColorFromString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const colors = ['#4f46e5', '#059669', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#16a34a'];
+        return colors[Math.abs(hash) % colors.length];
+    }
+
+    function formatTime(timestamp) {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const msgDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+        if (msgDate.getTime() === today.getTime()) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } else {
-            sessionStorage.removeItem('quickie_roomId');
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
         }
     }
 
-    function getSavedRoomId() {
-        return sessionStorage.getItem('quickie_roomId');
-    }
-
-    // ===== Socket Connection with Reconnect =====
-    function connectSocket() {
-        socket = io({
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000
-        });
-
-        socket.on('connect', () => {
-            mySocketId = socket.id;
-            errorMsg.textContent = '';
-            console.log('🔗 Connected to Quickie');
-
-            if (currentRoomId) {
-                socket.emit('rejoin-room', currentRoomId);
-                appendMessage('🔄 Reconnected to chat', 'system');
-            }
-        });
-
-        socket.on('connect_error', () => {
-            errorMsg.textContent = '⚠️ Cannot reach server. Make sure node server is running.';
-        });
-
-        socket.on('reconnecting', (attemptNumber) => {
-            appendMessage(`🔄 Reconnecting... (attempt ${attemptNumber})`, 'system');
-        });
-
-        socket.on('reconnect_failed', () => {
-            appendMessage('❌ Failed to reconnect. Please refresh the page.', 'system');
-        });
-    }
-    connectSocket();
-
-    // ===== Sound Notifications =====
     function playNotificationSound() {
         try {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -107,264 +1235,90 @@
             gainNode.gain.value = 0.1;
 
             oscillator.start();
-            setTimeout(() => {
-                oscillator.stop();
-            }, 150);
+            setTimeout(() => { oscillator.stop(); }, 150);
         } catch (e) {
             console.log('Sound not supported');
         }
     }
 
-    // ===== Push Notifications =====
-    function sendPushNotification(title, body) {
-        if (!('Notification' in window)) {
-            return;
-        }
+    function openImageModal(imageData) {
+        const modal = document.getElementById('imageModal');
+        const modalImg = document.getElementById('modalImage');
+        const downloadBtn = document.getElementById('downloadBtn');
 
-        if (Notification.permission === 'granted') {
-            new Notification(title, {
-                body: body,
-                icon: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%234f46e5" rx="20"/%3E%3Ctext x="50" y="68" font-size="50" text-anchor="middle" fill="white"%3E💬%3C/text%3E%3C/svg%3E',
-                tag: 'quickie-notification',
-                requireInteraction: true,
-                vibrate: [200, 100, 200]
+        modal.classList.add('show');
+        modalImg.src = imageData;
+        downloadBtn.href = imageData;
+        downloadBtn.download = 'quickie-image.jpg';
+    }
+
+    function playVoiceMessage(audioData) {
+        const modal = document.getElementById('audioPlayerModal');
+        const audioPlayer = document.getElementById('audioPlayer');
+        audioPlayer.src = audioData;
+        modal.classList.add('show');
+        audioPlayer.play();
+    }
+
+    // ===== Image Sharing =====
+    imageBtn.addEventListener('click', function () {
+        imageInput.click();
+    });
+
+    imageInput.addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function (event) {
+            const imageData = event.target.result;
+            const messageId = Date.now() + '_img';
+
+            const messageData = {
+                id: messageId,
+                image: imageData,
+                fileName: file.name,
+                from: myPin,
+                timestamp: Date.now(),
+                type: 'image',
+                deleted: false
+            };
+
+            allMessages.push(messageData);
+            appendImage(imageData, 'me', messageId);
+
+            const chat = allChats.find(c => c.chatId === currentChatId);
+            if (chat) {
+                chat.lastMessage = '📸 Image';
+                chat.lastTimestamp = Date.now();
+                renderChatList();
+                saveChatsToLocal();
+            }
+
+            socket.emit('chat-image', {
+                chatId: currentChatId,
+                image: imageData,
+                fileName: file.name,
+                messageId: messageId,
+                fromPin: myPin
             });
-        } else if (Notification.permission === 'default') {
-            Notification.requestPermission().then(permission => {
-                if (permission === 'granted') {
-                    sendPushNotification(title, body);
-                }
-            });
-        }
-    }
 
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-    }
-
-    // ===== Helper Functions =====
-    function setError(msg) {
-        errorMsg.textContent = msg;
-        if (msg) setTimeout(() => { errorMsg.textContent = ''; }, 5000);
-    }
-
-    function goToMainMenu() {
-        if (socket && currentRoomId) {
-            socket.emit('leave-room', currentRoomId);
-        }
-        currentRoomId = null;
-        chatScreen.classList.remove('active');
-        pairingScreen.style.display = 'flex';
-        otpDisplay.classList.remove('show');
-        messageList.innerHTML = '';
-        chatInput.value = '';
-        otpInput.value = '';
-        otpInput.focus();
-        document.getElementById('typingIndicator').style.display = 'none';
-        document.getElementById('quickReplies').classList.remove('show');
-        document.getElementById('searchBar').classList.remove('show');
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-        if (syncInterval) {
-            clearInterval(syncInterval);
-            syncInterval = null;
-        }
-        replyToMessage = null;
-        updateReplyPreview();
-        updateStatus('offline');
-        allMessages = [];
-        isFirstHistoryLoad = true;
-        lastSyncTime = 0;
-    }
-
-    function enterChat(roomId) {
-        currentRoomId = roomId;
-        pairingScreen.style.display = 'none';
-        chatScreen.classList.add('active');
-        chatInput.focus();
-        messageList.innerHTML = '';
-        document.getElementById('quickReplies').classList.add('show');
-        isFirstHistoryLoad = true;
-        lastSyncTime = Date.now();
-        startSilentSync();
-    }
-
-    function createMessageWrapper(messageId) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'message-wrapper';
-        wrapper.dataset.messageId = messageId;
-        return wrapper;
-    }
-
-    function updateStatus(status) {
-        const dot = document.getElementById('statusDot');
-        const text = document.getElementById('statusText');
-
-        dot.className = 'status-dot';
-        if (status === 'online') {
-            dot.classList.add('online');
-            text.textContent = 'Online';
-        } else if (status === 'away') {
-            dot.classList.add('away');
-            text.textContent = 'Away';
-        } else {
-            dot.classList.add('offline');
-            text.textContent = 'Offline';
-        }
-        partnerStatus = status;
-    }
-
-    function updateReplyPreview() {
-        let preview = document.querySelector('.reply-preview');
-        if (!preview) {
-            preview = document.createElement('div');
-            preview.className = 'reply-preview';
-            preview.id = 'replyPreview';
-            document.querySelector('.chat-messages').appendChild(preview);
-        }
-
-        if (replyToMessage) {
-            preview.classList.add('show');
-            const sender = replyToMessage.from === mySocketId ? 'You' : 'Partner';
-            preview.innerHTML = `
-        <span class="reply-sender">${sender}:</span>
-        <span class="reply-text">${replyToMessage.text.substring(0, 60)}${replyToMessage.text.length > 60 ? '...' : ''}</span>
-        <button class="reply-cancel-btn" onclick="window.cancelReply()">✕</button>
-      `;
-        } else {
-            preview.classList.remove('show');
-        }
-    }
-
-    window.cancelReply = function () {
-        replyToMessage = null;
-        updateReplyPreview();
-    };
-
-    // ===== Silent Background Sync =====
-    function startSilentSync() {
-        if (syncInterval) {
-            clearInterval(syncInterval);
-            syncInterval = null;
-        }
-
-        syncInterval = setInterval(() => {
-            if (!currentRoomId || !socket || !socket.connected) return;
-
-            fetch(`/sync?roomId=${currentRoomId}&since=${lastSyncTime}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data.messages && data.messages.length > 0) {
-                        data.messages.forEach(msg => {
-                            const exists = allMessages.some(m => m.id === msg.id);
-                            if (!exists && msg.from !== socket.id) {
-                                allMessages.push(msg);
-                                appendMessageSilent(msg);
-                            }
-                        });
-                        lastSyncTime = data.latestTimestamp || lastSyncTime;
-                    }
-                })
-                .catch(() => {
-                    // Silent fail
-                });
-        }, 10000);
-    }
-
-    function appendMessageSilent(msg) {
-        if (msg.type === 'text') {
-            appendMessage(msg.text, 'other', msg.id, msg.timestamp, msg.replyTo);
-        } else if (msg.type === 'image') {
-            appendImage(msg.image, 'other', msg.id, msg.timestamp);
-        } else if (msg.type === 'voice') {
-            appendVoiceMessage(msg.audioData, msg.duration, 'other', msg.id, msg.timestamp);
-        } else if (msg.type === 'file') {
-            appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, 'other', msg.id, msg.timestamp);
-        }
-    }
-
-    // ===== Refresh Chat =====
-    function refreshChat() {
-        if (!currentRoomId || !socket) return;
-        // Silent refresh - no visible messages
-        messageList.innerHTML = '';
-        allMessages = [];
-        isFirstHistoryLoad = true;
-        socket.emit('rejoin-room', currentRoomId);
-    }
-
-    // ===== Message Search =====
-    function toggleSearch() {
-        const searchBar = document.getElementById('searchBar');
-        searchBar.classList.toggle('show');
-        if (searchBar.classList.contains('show')) {
-            document.getElementById('searchInput').focus();
-        } else {
-            document.getElementById('searchInput').value = '';
-            document.getElementById('searchResults').classList.remove('show');
-        }
-    }
-
-    function performSearch(query) {
-        const resultsContainer = document.getElementById('searchResults');
-        if (!query.trim()) {
-            resultsContainer.classList.remove('show');
-            return;
-        }
-
-        const results = allMessages.filter(msg =>
-            msg.type === 'text' &&
-            !msg.deleted &&
-            msg.text &&
-            msg.text.toLowerCase().includes(query.toLowerCase())
-        );
-
-        resultsContainer.innerHTML = '';
-
-        if (results.length === 0) {
-            resultsContainer.innerHTML = '<div class="search-no-results">No messages found</div>';
-            resultsContainer.classList.add('show');
-            return;
-        }
-
-        results.forEach(msg => {
-            const item = document.createElement('div');
-            item.className = 'search-result-item';
-            const highlightedText = msg.text.replace(
-                new RegExp(query, 'gi'),
-                match => `<span class="highlight">${match}</span>`
-            );
-            const sender = msg.from === mySocketId ? 'You' : 'Partner';
-            const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            item.innerHTML = `
-        <div class="result-sender">${sender} · ${time}</div>
-        <div>${highlightedText}</div>
-      `;
-            item.addEventListener('click', () => {
-                const wrapper = document.querySelector(`[data-message-id="${msg.id}"]`);
-                if (wrapper) {
-                    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    wrapper.style.background = 'rgba(79, 70, 229, 0.1)';
-                    setTimeout(() => {
-                        wrapper.style.background = '';
-                    }, 2000);
-                }
-                document.getElementById('searchBar').classList.remove('show');
-                document.getElementById('searchResults').classList.remove('show');
-                document.getElementById('searchInput').value = '';
-            });
-            resultsContainer.appendChild(item);
-        });
-
-        resultsContainer.classList.add('show');
-    }
+            imageInput.value = '';
+        };
+        reader.readAsDataURL(file);
+    });
 
     // ===== File Sharing =====
-    function sendFile(file) {
+    fileBtn.addEventListener('click', function () {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = function (event) {
             const fileData = event.target.result;
             const fileSize = (file.size / 1024).toFixed(1) + ' KB';
             if (file.size > 10 * 1024 * 1024) {
@@ -381,665 +1335,167 @@
                 fileName: file.name,
                 fileType: file.type,
                 fileSize: fileSize,
-                from: socket.id,
+                from: myPin,
                 timestamp: Date.now(),
                 type: 'file',
                 deleted: false
             };
 
             allMessages.push(messageData);
-            appendFileMessage(fileData, file.name, fileSize, 'me', messageId, Date.now());
+            appendFileMessage(fileData, file.name, fileSize, 'me', messageId);
+
+            const chat = allChats.find(c => c.chatId === currentChatId);
+            if (chat) {
+                chat.lastMessage = `📄 ${file.name}`;
+                chat.lastTimestamp = Date.now();
+                renderChatList();
+                saveChatsToLocal();
+            }
 
             socket.emit('chat-file', {
-                roomId: currentRoomId,
+                chatId: currentChatId,
                 fileData: fileData,
                 fileName: file.name,
                 fileType: file.type,
                 fileSize: fileSize,
-                messageId: messageId
+                messageId: messageId,
+                fromPin: myPin
             });
+
+            fileInput.value = '';
         };
         reader.readAsDataURL(file);
-    }
+    });
 
-    // ===== Image Sharing =====
-    function sendImage(file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const imageData = event.target.result;
-            const messageId = Date.now() + '_img';
+    // ===== Voice Recording (FIXED) =====
+    voiceBtn.addEventListener('click', function () {
+        if (!currentChatId) {
+            setError('Please select a chat first');
+            return;
+        }
 
-            const messageData = {
-                id: messageId,
-                image: imageData,
-                fileName: file.name,
-                from: socket.id,
-                timestamp: Date.now(),
-                type: 'image',
-                deleted: false
-            };
-
-            allMessages.push(messageData);
-            appendImage(imageData, 'me', messageId, Date.now());
-
-            socket.emit('chat-image', {
-                roomId: currentRoomId,
-                image: imageData,
-                fileName: file.name,
-                messageId: messageId
-            });
-        };
-        reader.readAsDataURL(file);
-    }
-
-    function appendFileMessage(fileData, fileName, fileSize, type, messageId = null, timestamp = null) {
-        const wrapper = createMessageWrapper(messageId || Date.now());
-        const div = document.createElement('div');
-
-        if (type === 'me') {
-            div.className = 'message me';
+        if (isRecording) {
+            stopRecording();
         } else {
-            div.className = 'message other';
+            startRecording();
         }
+    });
 
-        const wrapperDiv = document.createElement('div');
-        wrapperDiv.className = 'file-message-wrapper';
-
-        const icon = document.createElement('span');
-        icon.className = 'file-icon';
-        const ext = fileName.split('.').pop().toLowerCase();
-        if (['pdf'].includes(ext)) icon.textContent = '📄';
-        else if (['doc', 'docx'].includes(ext)) icon.textContent = '📝';
-        else if (['xls', 'xlsx'].includes(ext)) icon.textContent = '📊';
-        else if (['zip', 'rar'].includes(ext)) icon.textContent = '📦';
-        else if (['txt'].includes(ext)) icon.textContent = '📃';
-        else icon.textContent = '📎';
-
-        const info = document.createElement('div');
-        info.className = 'file-info';
-        info.innerHTML = `
-      <div class="file-name">${fileName}</div>
-      <div class="file-size">${fileSize}</div>
-    `;
-
-        const downloadBtn = document.createElement('button');
-        downloadBtn.className = 'file-download-btn';
-        downloadBtn.textContent = '⬇️';
-        downloadBtn.addEventListener('click', () => {
-            const link = document.createElement('a');
-            link.href = fileData;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        });
-
-        wrapperDiv.appendChild(icon);
-        wrapperDiv.appendChild(info);
-        wrapperDiv.appendChild(downloadBtn);
-
-        const time = document.createElement('span');
-        time.className = 'timestamp';
-        if (timestamp) {
-            const date = new Date(timestamp);
-            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else {
-            const now = new Date();
-            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        div.appendChild(wrapperDiv);
-        div.appendChild(time);
-        wrapper.appendChild(div);
-        messageList.appendChild(wrapper);
-        scrollToBottom();
-        return wrapper;
-    }
-
-    function appendMessage(text, type, messageId = null, timestamp = null, replyTo = null) {
-        const wrapper = createMessageWrapper(messageId || Date.now());
-        const div = document.createElement('div');
-
-        if (type === 'me') {
-            div.className = 'message me';
-        } else if (type === 'system') {
-            div.className = 'message system';
-        } else {
-            div.className = 'message other';
-        }
-
-        if (text === 'This message was deleted') {
-            div.classList.add('deleted');
-        }
-
-        const content = document.createElement('div');
-
-        if (replyTo) {
-            const replyPreview = document.createElement('div');
-            replyPreview.className = 'reply-preview show';
-            const sender = replyTo.from === mySocketId ? 'You' : 'Partner';
-            replyPreview.innerHTML = `
-        <span class="reply-sender">${sender}:</span>
-        <span class="reply-text">${replyTo.text.substring(0, 60)}${replyTo.text.length > 60 ? '...' : ''}</span>
-      `;
-            content.appendChild(replyPreview);
-        }
-
-        const textContent = document.createElement('div');
-        textContent.textContent = text;
-        content.appendChild(textContent);
-
-        const time = document.createElement('span');
-        time.className = 'timestamp';
-        if (timestamp) {
-            const date = new Date(timestamp);
-            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else {
-            const now = new Date();
-            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        div.appendChild(content);
-        div.appendChild(time);
-
-        // Only Reply button - no React or Delete
-        if ((type === 'me' || type === 'other') && text !== 'This message was deleted') {
-            const actions = document.createElement('div');
-            actions.className = 'message-actions';
-
-            const replyBtn = document.createElement('button');
-            replyBtn.className = 'reply-btn';
-            replyBtn.textContent = '↩️';
-            replyBtn.title = 'Reply';
-            replyBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                replyToMessage = {
-                    id: wrapper.dataset.messageId,
-                    text: text,
-                    from: type === 'me' ? mySocketId : 'other'
-                };
-                updateReplyPreview();
-                chatInput.focus();
-            });
-
-            actions.appendChild(replyBtn);
-            div.appendChild(actions);
-        }
-
-        wrapper.appendChild(div);
-        messageList.appendChild(wrapper);
-        scrollToBottom();
-        return wrapper;
-    }
-
-    function appendImage(imageData, type, messageId = null, timestamp = null) {
-        const wrapper = createMessageWrapper(messageId || Date.now());
-        const div = document.createElement('div');
-
-        if (type === 'me') {
-            div.className = 'message me';
-        } else {
-            div.className = 'message other';
-        }
-
-        const wrapperDiv = document.createElement('div');
-        wrapperDiv.className = 'shared-image-wrapper';
-
-        const img = document.createElement('img');
-        img.src = imageData;
-        img.className = 'shared-image';
-        img.alt = 'Shared image';
-
-        img.addEventListener('click', () => {
-            openImageModal(imageData);
-        });
-
-        wrapperDiv.appendChild(img);
-
-        const actions = document.createElement('div');
-        actions.className = 'image-actions';
-
-        const downloadBtn = document.createElement('button');
-        downloadBtn.textContent = '📥 Download';
-        downloadBtn.addEventListener('click', () => {
-            downloadImage(imageData, 'image.jpg');
-        });
-
-        const viewBtn = document.createElement('button');
-        viewBtn.textContent = '🔍 View';
-        viewBtn.addEventListener('click', () => {
-            openImageModal(imageData);
-        });
-
-        actions.appendChild(downloadBtn);
-        actions.appendChild(viewBtn);
-
-        wrapperDiv.appendChild(actions);
-
-        const time = document.createElement('span');
-        time.className = 'timestamp';
-        if (timestamp) {
-            const date = new Date(timestamp);
-            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else {
-            const now = new Date();
-            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        div.appendChild(wrapperDiv);
-        div.appendChild(time);
-        wrapper.appendChild(div);
-        messageList.appendChild(wrapper);
-        scrollToBottom();
-        return wrapper;
-    }
-
-    function appendVoiceMessage(audioData, duration, type, messageId = null, timestamp = null) {
-        const wrapper = createMessageWrapper(messageId || Date.now());
-        const div = document.createElement('div');
-
-        if (type === 'me') {
-            div.className = 'message me';
-        } else {
-            div.className = 'message other';
-        }
-
-        const wrapperDiv = document.createElement('div');
-        wrapperDiv.className = 'voice-message-wrapper';
-
-        const playBtn = document.createElement('button');
-        playBtn.className = 'voice-play-btn';
-        playBtn.textContent = '▶️';
-        playBtn.addEventListener('click', () => {
-            playVoiceMessage(audioData);
-        });
-
-        const waveform = document.createElement('div');
-        waveform.className = 'voice-waveform';
-        for (let i = 0; i < 20; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'voice-bar';
-            bar.style.height = (5 + Math.random() * 25) + 'px';
-            bar.style.animationDelay = (Math.random() * 0.5) + 's';
-            waveform.appendChild(bar);
-        }
-
-        const durationLabel = document.createElement('span');
-        durationLabel.className = 'voice-duration';
-        const mins = Math.floor(duration / 60);
-        const secs = Math.floor(duration % 60);
-        durationLabel.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
-
-        wrapperDiv.appendChild(playBtn);
-        wrapperDiv.appendChild(waveform);
-        wrapperDiv.appendChild(durationLabel);
-
-        const time = document.createElement('span');
-        time.className = 'timestamp';
-        if (timestamp) {
-            const date = new Date(timestamp);
-            time.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else {
-            const now = new Date();
-            time.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        div.appendChild(wrapperDiv);
-        div.appendChild(time);
-        wrapper.appendChild(div);
-        messageList.appendChild(wrapper);
-        scrollToBottom();
-        return wrapper;
-    }
-
-    function playVoiceMessage(audioData) {
-        const modal = document.getElementById('audioPlayerModal');
-        const audioPlayer = document.getElementById('audioPlayer');
-        audioPlayer.src = audioData;
-        modal.classList.add('show');
-        audioPlayer.play();
-    }
-
-    function openImageModal(imageData) {
-        const modal = document.getElementById('imageModal');
-        const modalImg = document.getElementById('modalImage');
-        const downloadBtn = document.getElementById('downloadBtn');
-
-        modal.classList.add('show');
-        modalImg.src = imageData;
-        downloadBtn.href = imageData;
-        downloadBtn.download = 'quickie-image.jpg';
-    }
-
-    function downloadImage(imageData, filename) {
-        const link = document.createElement('a');
-        link.href = imageData;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-
-    function sendMessage() {
-        const text = chatInput.value.trim();
-        if (!text || !currentRoomId || !socket) return;
-
-        if (typingTimeout) {
-            clearTimeout(typingTimeout);
-            typingTimeout = null;
-        }
-        if (isTyping) {
-            isTyping = false;
-            socket.emit('typing', { roomId: currentRoomId, isTyping: false });
-        }
-
-        const messageId = ++messageIdCounter;
-        const replyData = replyToMessage ? {
-            id: replyToMessage.id,
-            text: replyToMessage.text,
-            from: replyToMessage.from
-        } : null;
-
-        socket.emit('chat-message', {
-            roomId: currentRoomId,
-            text,
-            messageId,
-            replyTo: replyData
-        });
-
-        appendMessage(text, 'me', messageId, null, replyData);
-        chatInput.value = '';
-        chatInput.focus();
-        replyToMessage = null;
-        updateReplyPreview();
-    }
-
-    // ===== Voice Recording =====
     function startRecording() {
         navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                mediaRecorder = new MediaRecorder(stream);
+            .then(function (stream) {
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
                 audioChunks = [];
                 recordingSeconds = 0;
                 isRecording = true;
 
-                mediaRecorder.ondataavailable = (event) => {
-                    audioChunks.push(event.data);
+                voiceBtn.classList.add('recording');
+                const voiceModal = document.getElementById('voiceModal');
+                voiceModal.classList.add('show');
+
+                if (recordingTimer) clearInterval(recordingTimer);
+                recordingTimer = setInterval(function () {
+                    recordingSeconds++;
+                    const mins = Math.floor(recordingSeconds / 60);
+                    const secs = recordingSeconds % 60;
+                    const timer = document.getElementById('voiceTimer');
+                    if (timer) timer.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+                }, 1000);
+
+                mediaRecorder.ondataavailable = function (event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
                 };
 
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                mediaRecorder.onstop = function () {
+                    console.log('🎤 Recording stopped, chunks:', audioChunks.length);
+
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                    console.log('📊 Audio blob size:', audioBlob.size, 'bytes');
+
                     const reader = new FileReader();
-                    reader.onload = () => {
+                    reader.onload = function () {
                         const audioData = reader.result;
+                        console.log('📊 Audio data length:', audioData ? audioData.length : 'null');
+
                         const messageId = Date.now() + '_voice';
 
                         const messageData = {
                             id: messageId,
                             audioData: audioData,
                             duration: recordingSeconds,
-                            from: socket.id,
+                            from: myPin,
                             timestamp: Date.now(),
                             type: 'voice',
                             deleted: false
                         };
-                        allMessages.push(messageData);
-                        appendVoiceMessage(audioData, recordingSeconds, 'me', messageId, Date.now());
 
+                        allMessages.push(messageData);
+                        appendVoiceMessage(audioData, recordingSeconds, 'me', messageId);
+
+                        const chat = allChats.find(c => c.chatId === currentChatId);
+                        if (chat) {
+                            chat.lastMessage = '🎤 Voice';
+                            chat.lastTimestamp = Date.now();
+                            renderChatList();
+                            saveChatsToLocal();
+                        }
+
+                        console.log('📤 Sending voice message to server...');
                         socket.emit('voice-message', {
-                            roomId: currentRoomId,
+                            chatId: currentChatId,
                             audioData: audioData,
                             duration: recordingSeconds,
-                            messageId: messageId
+                            messageId: messageId,
+                            fromPin: myPin
                         });
 
-                        document.getElementById('voiceModal').classList.remove('show');
-                        document.getElementById('voiceBtn').classList.remove('recording');
+                        const voiceModal = document.getElementById('voiceModal');
+                        voiceModal.classList.remove('show');
+                        voiceBtn.classList.remove('recording');
                     };
+
+                    reader.onerror = function (err) {
+                        console.error('❌ Error reading audio blob:', err);
+                        alert('Error processing voice message. Please try again.');
+                    };
+
                     reader.readAsDataURL(audioBlob);
 
-                    stream.getTracks().forEach(track => track.stop());
+                    stream.getTracks().forEach(function (track) { track.stop(); });
                     isRecording = false;
+                    if (recordingTimer) {
+                        clearInterval(recordingTimer);
+                        recordingTimer = null;
+                    }
                 };
 
-                mediaRecorder.start();
-                document.getElementById('voiceModal').classList.add('show');
-                document.getElementById('voiceBtn').classList.add('recording');
-
-                recordingSeconds = 0;
-                if (recordingTimer) clearInterval(recordingTimer);
-                recordingTimer = setInterval(() => {
-                    recordingSeconds++;
-                    const mins = Math.floor(recordingSeconds / 60);
-                    const secs = recordingSeconds % 60;
-                    document.getElementById('voiceTimer').textContent =
-                        `${mins}:${secs.toString().padStart(2, '0')}`;
-                }, 1000);
+                mediaRecorder.start(100);
             })
-            .catch(err => {
+            .catch(function (err) {
+                console.error('❌ Microphone error:', err);
                 alert('Microphone access is required for voice messages.');
-                console.error(err);
             });
     }
 
     function stopRecording() {
         if (mediaRecorder && isRecording) {
+            console.log('⏹️ Stopping recording...');
             mediaRecorder.stop();
-            if (recordingTimer) {
-                clearInterval(recordingTimer);
-                recordingTimer = null;
-            }
         }
     }
-
-    function cancelRecording() {
-        if (mediaRecorder && isRecording) {
-            mediaRecorder.stop();
-            if (recordingTimer) {
-                clearInterval(recordingTimer);
-                recordingTimer = null;
-            }
-            document.getElementById('voiceModal').classList.remove('show');
-            document.getElementById('voiceBtn').classList.remove('recording');
-            isRecording = false;
-        }
-    }
-
-    // ===== Event Listeners =====
-
-    // Logo click - return to main menu
-    document.getElementById('logo').addEventListener('click', () => {
-        if (chatScreen.classList.contains('active')) {
-            if (confirm('Leave this chat and go back to the main menu?')) {
-                goToMainMenu();
-                if (socket && currentRoomId) {
-                    socket.emit('chat-message', {
-                        roomId: currentRoomId,
-                        text: '👋 The user has left the chat'
-                    });
-                }
-            }
-        }
-    });
-
-    document.getElementById('logoHeader').addEventListener('click', () => {
-        if (chatScreen.classList.contains('active')) {
-            if (confirm('Leave this chat and go back to the main menu?')) {
-                goToMainMenu();
-                if (socket && currentRoomId) {
-                    socket.emit('chat-message', {
-                        roomId: currentRoomId,
-                        text: '👋 The user has left the chat'
-                    });
-                }
-            }
-        }
-    });
-
-    createBtn.addEventListener('click', async () => {
-        if (!socket || !socket.id) {
-            setError('Connecting to server... try again in a sec.');
-            return;
-        }
-        try {
-            const res = await fetch(`/create?socketId=${socket.id}`);
-            const data = await res.json();
-            if (data.otp) {
-                otpDisplay.textContent = data.otp;
-                otpDisplay.classList.add('show');
-
-                timerSeconds = 120;
-                if (timerInterval) clearInterval(timerInterval);
-                timerInterval = setInterval(() => {
-                    timerSeconds--;
-                    if (timerSeconds <= 0) {
-                        clearInterval(timerInterval);
-                        timerInterval = null;
-                        otpDisplay.classList.remove('show');
-                        setError('⏳ Code expired. Create a new one.');
-                        return;
-                    }
-                    const minutes = Math.floor(timerSeconds / 60);
-                    const seconds = timerSeconds % 60;
-                    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                    setError(`✅ Share this code · Expires in ${timeStr}`);
-                }, 1000);
-
-                setTimeout(() => {
-                    if (otpDisplay.classList.contains('show')) {
-                        otpDisplay.classList.remove('show');
-                        if (timerInterval) {
-                            clearInterval(timerInterval);
-                            timerInterval = null;
-                        }
-                        setError('⏳ Code expired. Create a new one.');
-                    }
-                }, 120000);
-            } else {
-                setError('Failed to create chat. Try again.');
-            }
-        } catch (e) {
-            setError('Network error. Is the server running?');
-        }
-    });
-
-    joinBtn.addEventListener('click', () => {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-
-        const otp = otpInput.value.trim();
-        if (!otp || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
-            setError('Please enter a valid 6-digit code');
-            return;
-        }
-        if (!socket || !socket.id) {
-            setError('Socket not ready. Wait a moment.');
-            return;
-        }
-        socket.emit('join-with-otp', otp);
-        setError('Connecting...');
-    });
-
-    leaveBtn.addEventListener('click', () => {
-        if (confirm('Leave this chat?')) {
-            goToMainMenu();
-            if (socket && currentRoomId) {
-                socket.emit('chat-message', {
-                    roomId: currentRoomId,
-                    text: '👋 The other user has left the chat'
-                });
-            }
-        }
-    });
-
-    // Refresh button - silent refresh
-    refreshBtn.addEventListener('click', refreshChat);
-
-    sendBtn.addEventListener('click', sendMessage);
-
-    chatInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') sendMessage();
-    });
-
-    chatInput.addEventListener('input', () => {
-        if (!currentRoomId || !socket) return;
-
-        const hasText = chatInput.value.trim().length > 0;
-
-        if (hasText && !isTyping) {
-            isTyping = true;
-            socket.emit('typing', { roomId: currentRoomId, isTyping: true });
-        }
-
-        if (!hasText && isTyping) {
-            isTyping = false;
-            socket.emit('typing', { roomId: currentRoomId, isTyping: false });
-        }
-
-        if (typingTimeout) clearTimeout(typingTimeout);
-        typingTimeout = setTimeout(() => {
-            if (isTyping) {
-                isTyping = false;
-                socket.emit('typing', { roomId: currentRoomId, isTyping: false });
-            }
-        }, 2000);
-    });
-
-    otpInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') joinBtn.click();
-    });
-
-    // ===== Quick Replies =====
-    document.querySelectorAll('.quick-reply').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const text = btn.dataset.text;
-            chatInput.value = text;
-            sendMessage();
-        });
-    });
-
-    // ===== Search =====
-    document.getElementById('searchBtn').addEventListener('click', toggleSearch);
-    document.getElementById('searchCloseBtn').addEventListener('click', toggleSearch);
-
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        performSearch(e.target.value);
-    });
-
-    document.getElementById('searchInput').addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            toggleSearch();
-        }
-    });
-
-    // ===== Voice Recording =====
-    document.getElementById('voiceBtn').addEventListener('click', () => {
-        if (!currentRoomId) return;
-        startRecording();
-    });
-
-    document.getElementById('stopRecordingBtn').addEventListener('click', stopRecording);
-    document.getElementById('cancelRecordingBtn').addEventListener('click', cancelRecording);
-
-    // ===== Audio Player =====
-    document.getElementById('closeAudioBtn').addEventListener('click', () => {
-        document.getElementById('audioPlayerModal').classList.remove('show');
-        document.getElementById('audioPlayer').pause();
-    });
 
     // ===== Emoji Picker =====
-    const emojiBtn = document.getElementById('emojiBtn');
-    const emojiPicker = document.getElementById('emojiPicker');
-
-    emojiBtn.addEventListener('click', () => {
+    emojiBtn.addEventListener('click', function () {
         emojiPicker.classList.toggle('show');
     });
 
-    emojiPicker.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const emoji = btn.textContent;
+    emojiPicker.querySelectorAll('button').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const emoji = this.textContent;
             const cursorPos = chatInput.selectionStart;
             const text = chatInput.value;
             chatInput.value = text.slice(0, cursorPos) + emoji + text.slice(cursorPos);
@@ -1050,297 +1506,82 @@
         });
     });
 
-    document.addEventListener('click', (e) => {
-        if (!emojiPicker.contains(e.target) && e.target !== emojiBtn) {
+    document.addEventListener('click', function (e) {
+        if (emojiPicker && emojiBtn && !emojiPicker.contains(e.target) && e.target !== emojiBtn) {
             emojiPicker.classList.remove('show');
         }
     });
 
-    // ===== Image Sharing =====
-    const imageBtn = document.getElementById('imageBtn');
-    const imageInput = document.getElementById('imageInput');
-
-    imageBtn.addEventListener('click', () => {
-        imageInput.click();
+    // ===== Image Modal Close =====
+    document.getElementById('closeModal').addEventListener('click', function () {
+        document.getElementById('imageModal').classList.remove('show');
     });
 
-    imageInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        sendImage(file);
-        imageInput.value = '';
-    });
-
-    // ===== File Sharing =====
-    const fileBtn = document.getElementById('fileBtn');
-    const fileInput = document.getElementById('fileInput');
-
-    fileBtn.addEventListener('click', () => {
-        fileInput.click();
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        sendFile(file);
-        fileInput.value = '';
-    });
-
-    // ===== Image Modal =====
-    const modal = document.getElementById('imageModal');
-    const closeModal = document.getElementById('closeModal');
-
-    closeModal.addEventListener('click', () => {
-        modal.classList.remove('show');
-    });
-
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.classList.remove('show');
+    document.getElementById('imageModal').addEventListener('click', function (e) {
+        if (e.target === this) {
+            this.classList.remove('show');
         }
     });
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            modal.classList.remove('show');
-            document.getElementById('audioPlayerModal').classList.remove('show');
-            document.getElementById('audioPlayer').pause();
-            document.getElementById('searchBar').classList.remove('show');
-        }
+    document.getElementById('closeAudioBtn').addEventListener('click', function () {
+        document.getElementById('audioPlayerModal').classList.remove('show');
+        const audioPlayer = document.getElementById('audioPlayer');
+        if (audioPlayer) audioPlayer.pause();
+    });
+
+    // ===== Quick Replies =====
+    document.querySelectorAll('.quick-reply').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const text = this.dataset.text;
+            chatInput.value = text;
+            sendMessage();
+        });
     });
 
     // ===== Dark Mode =====
-    const darkModeToggle = document.getElementById('darkModeToggle');
-
-    if (localStorage.getItem('darkMode') === 'enabled') {
-        document.body.classList.add('dark-mode');
-        darkModeToggle.textContent = '☀️';
+    if (darkModeToggle) {
+        if (localStorage.getItem('darkMode') === 'enabled') {
+            document.body.classList.add('dark-mode');
+            darkModeToggle.textContent = '☀️';
+        }
+        darkModeToggle.addEventListener('click', function () {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            this.textContent = isDark ? '☀️' : '🌙';
+            localStorage.setItem('darkMode', isDark ? 'enabled' : 'disabled');
+        });
     }
 
-    darkModeToggle.addEventListener('click', () => {
-        document.body.classList.toggle('dark-mode');
-        const isDark = document.body.classList.contains('dark-mode');
-        darkModeToggle.textContent = isDark ? '☀️' : '🌙';
-        localStorage.setItem('darkMode', isDark ? 'enabled' : 'disabled');
-    });
-
-    // ===== Socket Events =====
-
-    socket.on('paired', ({ roomId }) => {
-        enterChat(roomId);
-        setError('');
-        otpDisplay.classList.remove('show');
-        appendMessage('🔗 You are now connected!', 'system');
-        socket.emit('status-update', { roomId, status: 'online' });
-    });
-
-    socket.on('user-status', ({ userId, status }) => {
-        if (userId !== mySocketId) {
-            updateStatus(status);
+    // ===== Keyboard Shortcuts =====
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            document.getElementById('imageModal').classList.remove('show');
+            document.getElementById('audioPlayerModal').classList.remove('show');
+            const audioPlayer = document.getElementById('audioPlayer');
+            if (audioPlayer) audioPlayer.pause();
+            searchBar.classList.remove('show');
+            searchResults.classList.remove('show');
+            searchInput.value = '';
+            emojiPicker.classList.remove('show');
         }
     });
 
-    socket.on('chat-history', (history) => {
-        if (isFirstHistoryLoad) {
-            messageList.innerHTML = '';
-            allMessages = [];
-            isFirstHistoryLoad = false;
-        }
-
-        allMessages = history;
-        history.forEach(msg => {
-            if (msg.deleted) {
-                if (msg.type === 'text') {
-                    appendMessage('This message was deleted', msg.from === socket.id ? 'me' : 'other', msg.id, msg.timestamp);
-                }
-                return;
-            }
-
-            if (msg.type === 'text') {
-                appendMessage(msg.text, msg.from === socket.id ? 'me' : 'other', msg.id, msg.timestamp, msg.replyTo);
-            } else if (msg.type === 'image') {
-                appendImage(msg.image, msg.from === socket.id ? 'me' : 'other', msg.id, msg.timestamp);
-            } else if (msg.type === 'voice') {
-                appendVoiceMessage(msg.audioData, msg.duration, msg.from === socket.id ? 'me' : 'other', msg.id, msg.timestamp);
-            } else if (msg.type === 'file') {
-                appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, msg.from === socket.id ? 'me' : 'other', msg.id, msg.timestamp);
-            }
-        });
-        scrollToBottom();
-        if (history.length > 0) {
-            lastSyncTime = history[history.length - 1].timestamp;
+    // ===== Phone Input Formatting =====
+    phoneInput.addEventListener('input', function () {
+        const cleaned = this.value.replace(/\D/g, '');
+        if (cleaned.length > 0) {
+            let formatted = '+' + cleaned;
+            if (cleaned.length > 3) formatted = '+' + cleaned.slice(0, 3) + ' ' + cleaned.slice(3);
+            if (cleaned.length > 6) formatted = '+' + cleaned.slice(0, 3) + ' ' + cleaned.slice(3, 6) + ' ' + cleaned.slice(6);
+            if (cleaned.length > 10) formatted = '+' + cleaned.slice(0, 3) + ' ' + cleaned.slice(3, 6) + ' ' + cleaned.slice(6, 10);
+            this.value = formatted;
         }
     });
 
-    socket.on('chat-message', (msg) => {
-        if (msg.from === socket.id) return;
-        if (msg.deleted) {
-            appendMessage('This message was deleted', 'other', msg.id, msg.timestamp);
-            return;
-        }
-        allMessages.push(msg);
-        appendMessage(msg.text, 'other', msg.id, msg.timestamp, msg.replyTo);
-        playNotificationSound();
-        sendPushNotification('Quickie', `${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}`);
-    });
+    // ===== Initialize =====
+    console.log('✅ Quickie app initialized!');
+    loginPinInput.focus();
 
-    socket.on('chat-image', (msg) => {
-        if (msg.from === socket.id) return;
-        if (msg.deleted) {
-            appendMessage('Image was deleted', 'other', msg.id, msg.timestamp);
-            return;
-        }
-        allMessages.push(msg);
-        appendImage(msg.image, 'other', msg.id, msg.timestamp);
-        playNotificationSound();
-        sendPushNotification('Quickie', '📸 Image shared');
-    });
+    connectSocket();
 
-    socket.on('chat-file', (msg) => {
-        if (msg.from === socket.id) return;
-        if (msg.deleted) {
-            appendMessage('File was deleted', 'other', msg.id, msg.timestamp);
-            return;
-        }
-        allMessages.push(msg);
-        appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, 'other', msg.id, msg.timestamp);
-        playNotificationSound();
-        sendPushNotification('Quickie', `📄 File shared: ${msg.fileName}`);
-    });
-
-    socket.on('voice-message', (msg) => {
-        if (msg.from === socket.id) return;
-        if (msg.deleted) {
-            appendMessage('Voice message was deleted', 'other', msg.id, msg.timestamp);
-            return;
-        }
-        allMessages.push(msg);
-        appendVoiceMessage(msg.audioData, msg.duration, 'other', msg.id, msg.timestamp);
-        playNotificationSound();
-        sendPushNotification('Quickie', '🎤 Voice message received');
-    });
-
-    socket.on('reaction-update', ({ messageId, reactions }) => {
-        const wrapper = document.querySelector(`[data-message-id="${messageId}"]`);
-        if (!wrapper) return;
-
-        const existingReactions = wrapper.querySelector('.message-reactions');
-        if (existingReactions) {
-            existingReactions.remove();
-        }
-
-        const reactionCounts = {};
-        Object.values(reactions).forEach(emoji => {
-            reactionCounts[emoji] = (reactionCounts[emoji] || 0) + 1;
-        });
-
-        if (Object.keys(reactionCounts).length > 0) {
-            const container = document.createElement('div');
-            container.className = 'message-reactions';
-
-            Object.entries(reactionCounts).forEach(([emoji, count]) => {
-                const badge = document.createElement('span');
-                badge.className = 'reaction-badge';
-                badge.innerHTML = `${emoji} <span class="count">${count}</span>`;
-                container.appendChild(badge);
-            });
-
-            wrapper.querySelector('.message').appendChild(container);
-        }
-    });
-
-    socket.on('message-deleted', ({ messageId }) => {
-        const wrapper = document.querySelector(`[data-message-id="${messageId}"]`);
-        if (wrapper) {
-            const messageDiv = wrapper.querySelector('.message');
-            while (messageDiv.firstChild) {
-                messageDiv.removeChild(messageDiv.firstChild);
-            }
-            messageDiv.textContent = 'This message was deleted';
-            messageDiv.classList.add('deleted');
-            const reactions = wrapper.querySelector('.message-reactions');
-            if (reactions) reactions.remove();
-            const actions = wrapper.querySelector('.message-actions');
-            if (actions) actions.remove();
-        }
-
-        const msgIndex = allMessages.findIndex(m => m.id === messageId);
-        if (msgIndex !== -1) {
-            allMessages[msgIndex].deleted = true;
-            allMessages[msgIndex].text = 'This message was deleted';
-            if (allMessages[msgIndex].fileData) {
-                allMessages[msgIndex].fileData = null;
-            }
-            if (allMessages[msgIndex].image) {
-                allMessages[msgIndex].image = null;
-            }
-            if (allMessages[msgIndex].audioData) {
-                allMessages[msgIndex].audioData = null;
-            }
-        } else {
-            allMessages.push({
-                id: messageId,
-                text: 'This message was deleted',
-                deleted: true,
-                type: 'text',
-                timestamp: Date.now(),
-                from: 'unknown'
-            });
-        }
-    });
-
-    socket.on('error', (msg) => {
-        setError('❌ ' + msg);
-    });
-
-    socket.on('disconnect', () => {
-        if (syncInterval) {
-            clearInterval(syncInterval);
-            syncInterval = null;
-        }
-        if (chatScreen.classList.contains('active')) {
-            appendMessage('⚠️ Disconnected from server', 'system');
-        }
-    });
-
-    socket.on('partner-left', () => {
-        appendMessage('👋 The other user has left the chat', 'system');
-        if (syncInterval) {
-            clearInterval(syncInterval);
-            syncInterval = null;
-        }
-        setTimeout(() => {
-            goToMainMenu();
-        }, 3000);
-    });
-
-    socket.on('user-typing', ({ isTyping }) => {
-        const typingIndicator = document.getElementById('typingIndicator');
-        if (isTyping) {
-            typingIndicator.textContent = '👤 is typing...';
-            typingIndicator.style.display = 'block';
-        } else {
-            typingIndicator.style.display = 'none';
-        }
-    });
-
-    socket.on('rejoin-success', ({ roomId }) => {
-        // Silent rejoin - no visible notification
-        console.log('✅ Reconnected successfully!');
-        socket.emit('status-update', { roomId, status: 'online' });
-    });
-
-    // ===== Rejoin Failed Handler =====
-    socket.on('rejoin-failed', ({ roomId }) => {
-        console.log('Rejoin failed for room:', roomId);
-        sessionStorage.removeItem('quickie_roomId');
-        if (chatScreen.classList.contains('active')) {
-            appendMessage('⚠️ Chat session expired. Please create a new chat.', 'system');
-            setTimeout(() => {
-                goToMainMenu();
-            }, 2000);
-        }
-    });
-
-    otpInput.focus();
 })();
