@@ -1,54 +1,22 @@
-# ===== Dependencies =====
+# Dependencies
 node_modules/
 npm-debug.log
 yarn-debug.log
 yarn-error.log
 
-# ===== Environment Variables =====
+# Environment variables
 .env
 .env.local
 .env.*.local
-.env.production
-.env.development
 
-# ===== Build Outputs =====
-dist/
-build/
-*.apk
-*.ipa
-
-# ===== Database =====
-*.sqlite
-*.db
-*.sqlite3
-
-# ===== OS Files =====
+# OS files
 .DS_Store
 Thumbs.db
 desktop.ini
-*.tmp
+
+# IDE files
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
-
-# ===== IDE Files =====
-.vscode/
-.idea/
-*.iml
-.vscode/
-.idea/
-
-# ===== Logs =====
-logs/
-*.log
-npm-debug.log*
-
-# ===== Misc =====
-*.pem
-*.key
-*.crt
-*.p12
-*.pfx
-
-# ===== Render =====
-render.yaml
