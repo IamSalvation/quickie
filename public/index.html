@@ -11,10 +11,10 @@
 </head>
 
 <body>
-    <div class="app-container">
+    <div class="container">
 
-        <!-- ===== PAIRING SCREEN ===== -->
-        <div id="pairingScreen" class="pairing-screen">
+        <!-- Pairing Screen -->
+        <div id="pairingScreen">
             <button id="darkModeToggle" class="dark-mode-toggle">🌙</button>
             <div id="logo" class="logo">Quick<span>ie</span></div>
             <p class="subtitle">Instant private chat · No sign-up required</p>
@@ -31,103 +31,65 @@
             <div id="errorMsg" class="error-msg"></div>
         </div>
 
-        <!-- ===== CHAT SCREEN (Sidebar + Main Chat) ===== -->
-        <div id="chatScreen" class="chat-screen">
-
-            <!-- Sidebar -->
-            <div id="sidebar" class="sidebar">
-                <div class="sidebar-header">
-                    <span class="sidebar-logo">Quick<span>ie</span></span>
-                    <button id="sidebarCloseBtn" class="sidebar-close">✕</button>
+        <!-- Chat Screen -->
+        <div id="chatScreen">
+            <div class="chat-header">
+                <div class="header-left">
+                    <span id="logoHeader" class="brand clickable">Quick<span>ie</span></span>
+                    <span id="statusDot" class="status-dot offline"></span>
+                    <span id="statusText" class="status-text">Offline</span>
                 </div>
-                <div class="sidebar-search">
-                    <input type="text" placeholder="Search chats..." id="sidebarSearch" />
-                </div>
-                <div id="chatList" class="chat-list">
-                    <!-- Chat items will be rendered here -->
-                </div>
-                <div class="sidebar-footer">
-                    <button id="newChatBtn" class="new-chat-btn">➕ New Chat</button>
+                <div class="header-right">
+                    <button id="refreshBtn" class="header-btn" title="Refresh Chat">🔄</button>
+                    <button id="searchBtn" class="header-btn" title="Search Messages">🔍</button>
+                    <span class="badge">● Live</span>
+                    <button id="leaveBtn" class="leave-btn">✕ Leave</button>
                 </div>
             </div>
 
-            <!-- Sidebar Overlay (mobile) -->
-            <div id="sidebarOverlay" class="sidebar-overlay"></div>
+            <!-- Search Bar -->
+            <div id="searchBar" class="search-bar">
+                <input type="text" id="searchInput" placeholder="Search messages..." />
+                <button id="searchCloseBtn" class="search-close">✕</button>
+                <div id="searchResults" class="search-results"></div>
+            </div>
 
-            <!-- Main Chat Area -->
-            <div class="main-chat">
-                <!-- Chat Header -->
-                <div class="chat-header">
-                    <button id="sidebarToggle" class="sidebar-toggle">☰</button>
-                    <div class="header-left">
-                        <span id="partnerName" class="partner-name">Select a chat</span>
-                        <span id="statusDot" class="status-dot offline"></span>
-                        <span id="statusText" class="status-text">Offline</span>
-                    </div>
-                    <div class="header-right">
-                        <button id="searchBtn" class="header-btn" title="Search Messages">🔍</button>
-                        <button id="refreshBtn" class="header-btn" title="Refresh Chat">🔄</button>
-                        <span class="badge">● Live</span>
-                        <button id="leaveBtn" class="leave-btn">✕ Leave</button>
-                    </div>
-                </div>
+            <div id="messageList" class="chat-messages"></div>
+            <div id="typingIndicator" class="typing-indicator"></div>
 
-                <!-- Search Bar -->
-                <div id="searchBar" class="search-bar">
-                    <input type="text" id="searchInput" placeholder="Search messages..." />
-                    <button id="searchCloseBtn" class="search-close">✕</button>
-                    <div id="searchResults" class="search-results"></div>
-                </div>
+            <!-- Quick Replies -->
+            <div id="quickReplies" class="quick-replies">
+                <button class="quick-reply" data-text="OK 👍">OK 👍</button>
+                <button class="quick-reply" data-text="On my way! 🚀">On my way! 🚀</button>
+                <button class="quick-reply" data-text="Got it! ✅">Got it! ✅</button>
+                <button class="quick-reply" data-text="Thank you! 🙏">Thank you! 🙏</button>
+                <button class="quick-reply" data-text="😂 That's funny">😂 That's funny</button>
+                <button class="quick-reply" data-text="❤️ Love it">❤️ Love it</button>
+            </div>
 
-                <!-- Messages Area -->
-                <div id="messageList" class="chat-messages"></div>
-                <div id="typingIndicator" class="typing-indicator"></div>
-
-                <!-- Quick Replies -->
-                <div id="quickReplies" class="quick-replies">
-                    <button class="quick-reply" data-text="OK 👍">OK 👍</button>
-                    <button class="quick-reply" data-text="On my way! 🚀">On my way! 🚀</button>
-                    <button class="quick-reply" data-text="Got it! ✅">Got it! ✅</button>
-                    <button class="quick-reply" data-text="Thank you! 🙏">Thank you! 🙏</button>
-                    <button class="quick-reply" data-text="😂 That's funny">😂 That's funny</button>
-                    <button class="quick-reply" data-text="❤️ Love it">❤️ Love it</button>
-                </div>
-
-                <!-- Chat Input Area (New Design) -->
-                <div class="chat-input-area">
-                    <!-- Text Input Row -->
-                    <div class="input-row">
-                        <textarea id="chatInput" placeholder="Type a message..." rows="1" maxlength="1000"></textarea>
-                        <button id="sendBtn" class="send-btn">Send</button>
-                    </div>
-                    <!-- Toolbar Row -->
-                    <div class="toolbar-row">
-                        <button id="emojiBtn" class="icon-btn" title="Emoji">😊</button>
-                        <button id="imageBtn" class="icon-btn" title="Image">📎</button>
-                        <button id="voiceBtn" class="icon-btn" title="Voice">🎤</button>
-                        <button id="fileBtn" class="icon-btn" title="File">📄</button>
-                    </div>
-                    <input type="file" id="fileInput" style="display:none" />
-                    <input type="file" id="imageInput" accept="image/*" style="display:none" />
-                </div>
-
-                <!-- Emoji Picker -->
-                <div id="emojiPicker" class="emoji-picker">
-                    <button>😀</button><button>😂</button><button>🤣</button>
-                    <button>❤️</button><button>😍</button><button>🥰</button>
-                    <button>👍</button><button>👎</button><button>👏</button>
-                    <button>🎉</button><button>🔥</button><button>💯</button>
-                    <button>😊</button><button>😎</button><button>🤗</button>
-                    <button>😘</button><button>😁</button><button>😅</button>
-                    <button>🤔</button><button>😳</button><button>😭</button>
-                    <button>💀</button><button>✨</button><button>🌟</button>
-                    <button>🙏</button><button>🤝</button><button>💪</button>
-                    <button>🚀</button><button>⭐</button><button>💖</button>
-                </div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" placeholder="Type a message..." />
+                <button id="fileBtn" class="icon-btn" title="Send File">📄</button>
+                <button id="voiceBtn" class="icon-btn">🎤</button>
+                <button id="imageBtn" class="icon-btn">📎</button>
+                <button id="emojiBtn" class="icon-btn">😊</button>
+                <button id="sendBtn" class="send-btn">Send</button>
+                <input type="file" id="fileInput" style="display:none" />
+                <input type="file" id="imageInput" accept="image/*" style="display:none" />
+            </div>
+            <div id="emojiPicker" class="emoji-picker">
+                <button>😀</button><button>😂</button><button>🤣</button>
+                <button>❤️</button><button>😍</button><button>🥰</button>
+                <button>👍</button><button>👎</button><button>👏</button>
+                <button>🎉</button><button>🔥</button><button>💯</button>
+                <button>😊</button><button>😎</button><button>🤗</button>
+                <button>😘</button><button>😁</button><button>😅</button>
+                <button>🤔</button><button>😳</button><button>😭</button>
+                <button>💀</button><button>✨</button><button>🌟</button>
+                <button>🙏</button><button>🤝</button><button>💪</button>
+                <button>🚀</button><button>⭐</button><button>💖</button>
             </div>
         </div>
-
-        <!-- ===== MODALS ===== -->
 
         <!-- Image Viewer Modal -->
         <div id="imageModal" class="image-modal">
