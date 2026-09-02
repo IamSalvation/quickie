@@ -12,10 +12,17 @@
     const messageList = document.getElementById('messageList');
     const chatInput = document.getElementById('chatInput');
     const sendBtn = document.getElementById('sendBtn');
+    const chatList = document.getElementById('chatList');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+    const partnerName = document.getElementById('partnerName');
 
     // ===== State =====
     let socket = null;
     let currentRoomId = null;
+    let currentChatId = null;
     let mySocketId = null;
     let typingTimeout = null;
     let isTyping = false;
@@ -25,7 +32,9 @@
     let replyToMessage = null;
     let partnerStatus = 'offline';
     let allMessages = [];
+    let allChats = [];
     let isFirstHistoryLoad = true;
+    let activeChatId = null;
 
     // ===== Silent Sync State =====
     let lastSyncTime = 0;
@@ -58,7 +67,290 @@
         return sessionStorage.getItem('quickie_roomId');
     }
 
-    // ===== Socket Connection with Reconnect =====
+    // ===== Chat Management =====
+    function addChat(chatId, partnerId, partnerName) {
+        // Check if chat already exists
+        const exists = allChats.some(c => c.id === chatId);
+        if (!exists) {
+            allChats.push({
+                id: chatId,
+                partnerId: partnerId,
+                partnerName: partnerName || 'Partner',
+                lastMessage: null,
+                lastTimestamp: null,
+                unreadCount: 0,
+                isActive: false,
+                messages: []
+            });
+            renderChatList();
+            saveChatsToLocal();
+        }
+    }
+
+    function getChat(chatId) {
+        return allChats.find(c => c.id === chatId);
+    }
+
+    function updateChatLastMessage(chatId, message, timestamp) {
+        const chat = getChat(chatId);
+        if (chat) {
+            chat.lastMessage = message;
+            chat.lastTimestamp = timestamp || Date.now();
+            chat.isActive = (chat.id === activeChatId);
+            renderChatList();
+            saveChatsToLocal();
+        }
+    }
+
+    function setActiveChat(chatId) {
+        activeChatId = chatId;
+        allChats.forEach(c => {
+            c.isActive = (c.id === chatId);
+            if (c.id === chatId) {
+                c.unreadCount = 0;
+            }
+        });
+        renderChatList();
+        saveChatsToLocal();
+    }
+
+    function loadChatMessages(chatId) {
+        const chat = getChat(chatId);
+        if (chat) {
+            messageList.innerHTML = '';
+            allMessages = chat.messages || [];
+            allMessages.forEach(msg => {
+                if (msg.deleted) {
+                    appendMessage('This message was deleted', msg.from === mySocketId ? 'me' : 'other', msg.id, msg.timestamp);
+                    return;
+                }
+                if (msg.type === 'text') {
+                    appendMessage(msg.text, msg.from === mySocketId ? 'me' : 'other', msg.id, msg.timestamp, msg.replyTo);
+                } else if (msg.type === 'image') {
+                    appendImage(msg.image, msg.from === mySocketId ? 'me' : 'other', msg.id, msg.timestamp);
+                } else if (msg.type === 'voice') {
+                    appendVoiceMessage(msg.audioData, msg.duration, msg.from === mySocketId ? 'me' : 'other', msg.id, msg.timestamp);
+                } else if (msg.type === 'file') {
+                    appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, msg.from === mySocketId ? 'me' : 'other', msg.id, msg.timestamp);
+                }
+            });
+            partnerName.textContent = chat.partnerName || 'Partner';
+            scrollToBottom();
+        }
+    }
+
+    function addMessageToChat(chatId, messageData) {
+        const chat = getChat(chatId);
+        if (chat) {
+            chat.messages.push(messageData);
+            chat.lastMessage = messageData.text || (messageData.type === 'image' ? '📸 Image' : messageData.type === 'file' ? '📄 File' : messageData.type === 'voice' ? '🎤 Voice' : '');
+            chat.lastTimestamp = messageData.timestamp || Date.now();
+
+            if (chat.id !== activeChatId && messageData.from !== mySocketId) {
+                chat.unreadCount = (chat.unreadCount || 0) + 1;
+            }
+
+            if (chat.id === activeChatId) {
+                allMessages.push(messageData);
+                displayMessage(messageData);
+            }
+
+            renderChatList();
+            saveChatsToLocal();
+        }
+    }
+
+    function displayMessage(messageData) {
+        if (messageData.deleted) {
+            appendMessage('This message was deleted', messageData.from === mySocketId ? 'me' : 'other', messageData.id, messageData.timestamp);
+            return;
+        }
+        if (messageData.type === 'text') {
+            appendMessage(messageData.text, messageData.from === mySocketId ? 'me' : 'other', messageData.id, messageData.timestamp, messageData.replyTo);
+        } else if (messageData.type === 'image') {
+            appendImage(messageData.image, messageData.from === mySocketId ? 'me' : 'other', messageData.id, messageData.timestamp);
+        } else if (messageData.type === 'voice') {
+            appendVoiceMessage(messageData.audioData, messageData.duration, messageData.from === mySocketId ? 'me' : 'other', messageData.id, messageData.timestamp);
+        } else if (messageData.type === 'file') {
+            appendFileMessage(messageData.fileData, messageData.fileName, messageData.fileSize, messageData.from === mySocketId ? 'me' : 'other', messageData.id, messageData.timestamp);
+        }
+    }
+
+    function saveChatsToLocal() {
+        try {
+            localStorage.setItem('quickie_chats', JSON.stringify(allChats));
+        } catch (e) {
+            console.log('Failed to save chats to localStorage');
+        }
+    }
+
+    function loadChatsFromLocal() {
+        try {
+            const saved = localStorage.getItem('quickie_chats');
+            if (saved) {
+                allChats = JSON.parse(saved);
+                // Find active chat
+                const active = allChats.find(c => c.isActive);
+                if (active) {
+                    activeChatId = active.id;
+                    partnerName.textContent = active.partnerName || 'Partner';
+                    loadChatMessages(activeChatId);
+                }
+                renderChatList();
+            }
+        } catch (e) {
+            console.log('Failed to load chats from localStorage');
+        }
+    }
+
+    // ===== Render Chat List =====
+    function renderChatList() {
+        chatList.innerHTML = '';
+        const sortedChats = [...allChats].sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
+
+        if (sortedChats.length === 0) {
+            chatList.innerHTML = `
+        <div style="padding: 2rem 1rem; text-align: center; color: #6b7280; font-size: 0.9rem;">
+          No chats yet.<br/>Start a new chat!
+        </div>
+      `;
+            return;
+        }
+
+        sortedChats.forEach(chat => {
+            const item = document.createElement('div');
+            item.className = `chat-item${chat.isActive ? ' active' : ''}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'chat-item-avatar';
+            avatar.textContent = (chat.partnerName || 'P').charAt(0).toUpperCase();
+            avatar.style.background = getColorFromString(chat.partnerId || chat.id);
+
+            const info = document.createElement('div');
+            info.className = 'chat-item-info';
+
+            const nameRow = document.createElement('div');
+            nameRow.style.display = 'flex';
+            nameRow.style.alignItems = 'center';
+
+            const name = document.createElement('span');
+            name.className = 'chat-item-name';
+            name.textContent = chat.partnerName || 'Partner';
+
+            const statusDot = document.createElement('span');
+            statusDot.className = 'chat-item-status offline';
+
+            nameRow.appendChild(name);
+            nameRow.appendChild(statusDot);
+
+            const preview = document.createElement('div');
+            preview.className = 'chat-item-preview';
+            preview.textContent = chat.lastMessage || 'Start chatting...';
+
+            const time = document.createElement('span');
+            time.className = 'chat-item-time';
+            if (chat.lastTimestamp) {
+                time.textContent = formatTime(chat.lastTimestamp);
+            }
+
+            const badge = document.createElement('span');
+            badge.className = 'chat-item-badge';
+            badge.textContent = chat.unreadCount || 0;
+            if (!chat.unreadCount || chat.unreadCount === 0) {
+                badge.style.display = 'none';
+            }
+
+            info.appendChild(nameRow);
+            info.appendChild(preview);
+
+            const right = document.createElement('div');
+            right.style.display = 'flex';
+            right.style.alignItems = 'center';
+            right.style.marginLeft = 'auto';
+            right.appendChild(time);
+            right.appendChild(badge);
+
+            item.appendChild(avatar);
+            item.appendChild(info);
+            item.appendChild(right);
+
+            item.addEventListener('click', () => {
+                switchChat(chat.id);
+                // Close sidebar on mobile
+                closeSidebar();
+            });
+
+            chatList.appendChild(item);
+        });
+    }
+
+    function getColorFromString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const colors = ['#4f46e5', '#059669', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#16a34a'];
+        return colors[Math.abs(hash) % colors.length];
+    }
+
+    function formatTime(timestamp) {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const msgDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+        if (msgDate.getTime() === today.getTime()) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
+    }
+
+    // ===== Switch Chat =====
+    function switchChat(chatId) {
+        if (activeChatId === chatId) return;
+
+        // Save current chat messages
+        const currentChat = getChat(activeChatId);
+        if (currentChat) {
+            currentChat.messages = allMessages;
+            currentChat.isActive = false;
+        }
+
+        setActiveChat(chatId);
+        loadChatMessages(chatId);
+
+        // Update partner status
+        const chat = getChat(chatId);
+        if (chat) {
+            partnerName.textContent = chat.partnerName || 'Partner';
+            // Request partner status
+            if (socket && currentRoomId) {
+                socket.emit('status-update', { roomId: currentRoomId, status: 'online' });
+            }
+        }
+    }
+
+    // ===== Sidebar Controls =====
+    function openSidebar() {
+        sidebar.classList.add('open');
+        sidebarOverlay.classList.add('show');
+    }
+
+    function closeSidebar() {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('show');
+    }
+
+    function toggleSidebar() {
+        if (sidebar.classList.contains('open')) {
+            closeSidebar();
+        } else {
+            openSidebar();
+        }
+    }
+
+    // ===== Socket Connection =====
     function connectSocket() {
         socket = io({
             reconnection: true,
@@ -72,10 +364,8 @@
             errorMsg.textContent = '';
             console.log('🔗 Connected to Quickie');
 
-            // Check if we have a saved room to rejoin
             const savedRoom = getSavedRoomId();
             if (savedRoom && !currentRoomId) {
-                // Auto-rejoin the saved room on page refresh
                 console.log('🔄 Auto-rejoining saved room:', savedRoom);
                 socket.emit('rejoin-room', savedRoom);
             } else if (currentRoomId) {
@@ -84,11 +374,10 @@
         });
 
         socket.on('connect_error', () => {
-            errorMsg.textContent = '⚠️ Cannot reach server. Make sure node server is running.';
+            errorMsg.textContent = '⚠️ Cannot reach server. Make sure server is running.';
         });
 
         socket.on('reconnecting', (attemptNumber) => {
-            // Silent reconnect - no visible message
             console.log('🔄 Reconnecting... (attempt ' + attemptNumber + ')');
         });
 
@@ -123,10 +412,7 @@
 
     // ===== Push Notifications =====
     function sendPushNotification(title, body) {
-        if (!('Notification' in window)) {
-            return;
-        }
-
+        if (!('Notification' in window)) return;
         if (Notification.permission === 'granted') {
             new Notification(title, {
                 body: body,
@@ -159,6 +445,8 @@
             socket.emit('leave-room', currentRoomId);
         }
         currentRoomId = null;
+        currentChatId = null;
+        activeChatId = null;
         saveRoomId(null);
         chatScreen.classList.remove('active');
         pairingScreen.style.display = 'flex';
@@ -184,18 +472,34 @@
         allMessages = [];
         isFirstHistoryLoad = true;
         lastSyncTime = 0;
+        chatList.innerHTML = '';
+        partnerName.textContent = 'Select a chat';
     }
 
-    function enterChat(roomId) {
+    function enterChat(roomId, chatId) {
         currentRoomId = roomId;
+        currentChatId = chatId;
         saveRoomId(roomId);
         pairingScreen.style.display = 'none';
         chatScreen.classList.add('active');
         chatInput.focus();
-        messageList.innerHTML = '';
-        document.getElementById('quickReplies').classList.add('show');
         isFirstHistoryLoad = true;
         lastSyncTime = Date.now();
+
+        // Load chats from localStorage
+        loadChatsFromLocal();
+
+        // If we have a chat ID, set it as active
+        if (chatId) {
+            setActiveChat(chatId);
+            loadChatMessages(chatId);
+            const chat = getChat(chatId);
+            if (chat) {
+                partnerName.textContent = chat.partnerName || 'Partner';
+            }
+        }
+
+        document.getElementById('quickReplies').classList.add('show');
         startSilentSync();
     }
 
@@ -268,8 +572,24 @@
                         data.messages.forEach(msg => {
                             const exists = allMessages.some(m => m.id === msg.id);
                             if (!exists && msg.from !== socket.id) {
-                                allMessages.push(msg);
-                                appendMessageSilent(msg);
+                                // Add to current chat
+                                const messageData = {
+                                    id: msg.id,
+                                    text: msg.text,
+                                    from: msg.from,
+                                    timestamp: msg.timestamp,
+                                    type: msg.type || 'text',
+                                    deleted: msg.deleted || false,
+                                    replyTo: msg.replyTo || null,
+                                    image: msg.image,
+                                    fileData: msg.fileData,
+                                    fileName: msg.fileName,
+                                    fileSize: msg.fileSize,
+                                    audioData: msg.audioData,
+                                    duration: msg.duration
+                                };
+                                allMessages.push(messageData);
+                                displayMessage(messageData);
                             }
                         });
                         lastSyncTime = data.latestTimestamp || lastSyncTime;
@@ -296,7 +616,6 @@
     // ===== Refresh Chat =====
     function refreshChat() {
         if (!currentRoomId || !socket) return;
-        // Silent refresh - no visible messages
         messageList.innerHTML = '';
         allMessages = [];
         isFirstHistoryLoad = true;
@@ -395,7 +714,11 @@
                 deleted: false
             };
 
+            // Add to current chat
             allMessages.push(messageData);
+            if (currentChatId) {
+                addMessageToChat(currentChatId, messageData);
+            }
             appendFileMessage(fileData, file.name, fileSize, 'me', messageId, Date.now());
 
             socket.emit('chat-file', {
@@ -428,6 +751,9 @@
             };
 
             allMessages.push(messageData);
+            if (currentChatId) {
+                addMessageToChat(currentChatId, messageData);
+            }
             appendImage(imageData, 'me', messageId, Date.now());
 
             socket.emit('chat-image', {
@@ -550,7 +876,6 @@
         div.appendChild(content);
         div.appendChild(time);
 
-        // Only Reply button - no React or Delete
         if ((type === 'me' || type === 'other') && text !== 'This message was deleted') {
             const actions = document.createElement('div');
             actions.className = 'message-actions';
@@ -748,6 +1073,22 @@
             from: replyToMessage.from
         } : null;
 
+        const messageData = {
+            id: messageId,
+            text: text,
+            from: socket.id,
+            timestamp: Date.now(),
+            type: 'text',
+            deleted: false,
+            replyTo: replyData
+        };
+
+        // Add to current chat
+        allMessages.push(messageData);
+        if (currentChatId) {
+            addMessageToChat(currentChatId, messageData);
+        }
+
         socket.emit('chat-message', {
             roomId: currentRoomId,
             text,
@@ -757,6 +1098,7 @@
 
         appendMessage(text, 'me', messageId, null, replyData);
         chatInput.value = '';
+        chatInput.style.height = 'auto';
         chatInput.focus();
         replyToMessage = null;
         updateReplyPreview();
@@ -791,7 +1133,11 @@
                             type: 'voice',
                             deleted: false
                         };
+
                         allMessages.push(messageData);
+                        if (currentChatId) {
+                            addMessageToChat(currentChatId, messageData);
+                        }
                         appendVoiceMessage(audioData, recordingSeconds, 'me', messageId, Date.now());
 
                         socket.emit('voice-message', {
@@ -852,6 +1198,12 @@
             isRecording = false;
         }
     }
+
+    // ===== Auto-expand Textarea =====
+    chatInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
+    });
 
     // ===== Event Listeners =====
 
@@ -965,10 +1317,20 @@
     // Refresh button - silent refresh
     refreshBtn.addEventListener('click', refreshChat);
 
+    // Sidebar toggle
+    sidebarToggle.addEventListener('click', toggleSidebar);
+    sidebarCloseBtn.addEventListener('click', closeSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+
+    // Send message
     sendBtn.addEventListener('click', sendMessage);
 
+    // Ctrl+Enter to send (Shift+Enter for new line)
     chatInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') sendMessage();
+        if (e.key === 'Enter' && e.ctrlKey) {
+            e.preventDefault();
+            sendMessage();
+        }
     });
 
     chatInput.addEventListener('input', () => {
@@ -1135,7 +1497,17 @@
     // ===== Socket Events =====
 
     socket.on('paired', ({ roomId }) => {
-        enterChat(roomId);
+        // Create chat entry
+        const chatId = `chat_${roomId}`;
+        const partnerName = 'Partner'; // Will be updated from history
+
+        // Check if chat already exists in localStorage
+        let existingChat = allChats.find(c => c.id === chatId);
+        if (!existingChat) {
+            addChat(chatId, mySocketId, partnerName);
+        }
+
+        enterChat(roomId, chatId);
         setError('');
         otpDisplay.classList.remove('show');
         appendMessage('🔗 You are now connected!', 'system');
@@ -1148,15 +1520,23 @@
         }
     });
 
-    socket.on('chat-history', (history) => {
+    socket.on('chat-history', ({ chatId, messages, partnerId }) => {
         if (isFirstHistoryLoad) {
             messageList.innerHTML = '';
             allMessages = [];
             isFirstHistoryLoad = false;
         }
 
-        allMessages = history;
-        history.forEach(msg => {
+        // Update chat partner name if available
+        if (chatId) {
+            const chat = getChat(chatId);
+            if (chat && partnerId) {
+                // Partner name will be set from the server later
+            }
+        }
+
+        allMessages = messages;
+        messages.forEach(msg => {
             if (msg.deleted) {
                 if (msg.type === 'text') {
                     appendMessage('This message was deleted', msg.from === socket.id ? 'me' : 'other', msg.id, msg.timestamp);
@@ -1175,8 +1555,8 @@
             }
         });
         scrollToBottom();
-        if (history.length > 0) {
-            lastSyncTime = history[history.length - 1].timestamp;
+        if (messages.length > 0) {
+            lastSyncTime = messages[messages.length - 1].timestamp;
         }
     });
 
@@ -1186,7 +1566,20 @@
             appendMessage('This message was deleted', 'other', msg.id, msg.timestamp);
             return;
         }
-        allMessages.push(msg);
+
+        const messageData = {
+            id: msg.id,
+            text: msg.text,
+            from: msg.from,
+            timestamp: msg.timestamp,
+            type: 'text',
+            deleted: false,
+            replyTo: msg.replyTo || null
+        };
+
+        if (currentChatId) {
+            addMessageToChat(currentChatId, messageData);
+        }
         appendMessage(msg.text, 'other', msg.id, msg.timestamp, msg.replyTo);
         playNotificationSound();
         sendPushNotification('Quickie', `${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}`);
@@ -1198,7 +1591,20 @@
             appendMessage('Image was deleted', 'other', msg.id, msg.timestamp);
             return;
         }
-        allMessages.push(msg);
+
+        const messageData = {
+            id: msg.id,
+            image: msg.image,
+            fileName: msg.fileName,
+            from: msg.from,
+            timestamp: msg.timestamp,
+            type: 'image',
+            deleted: false
+        };
+
+        if (currentChatId) {
+            addMessageToChat(currentChatId, messageData);
+        }
         appendImage(msg.image, 'other', msg.id, msg.timestamp);
         playNotificationSound();
         sendPushNotification('Quickie', '📸 Image shared');
@@ -1210,7 +1616,21 @@
             appendMessage('File was deleted', 'other', msg.id, msg.timestamp);
             return;
         }
-        allMessages.push(msg);
+
+        const messageData = {
+            id: msg.id,
+            fileData: msg.fileData,
+            fileName: msg.fileName,
+            fileSize: msg.fileSize,
+            from: msg.from,
+            timestamp: msg.timestamp,
+            type: 'file',
+            deleted: false
+        };
+
+        if (currentChatId) {
+            addMessageToChat(currentChatId, messageData);
+        }
         appendFileMessage(msg.fileData, msg.fileName, msg.fileSize, 'other', msg.id, msg.timestamp);
         playNotificationSound();
         sendPushNotification('Quickie', `📄 File shared: ${msg.fileName}`);
@@ -1222,7 +1642,20 @@
             appendMessage('Voice message was deleted', 'other', msg.id, msg.timestamp);
             return;
         }
-        allMessages.push(msg);
+
+        const messageData = {
+            id: msg.id,
+            audioData: msg.audioData,
+            duration: msg.duration,
+            from: msg.from,
+            timestamp: msg.timestamp,
+            type: 'voice',
+            deleted: false
+        };
+
+        if (currentChatId) {
+            addMessageToChat(currentChatId, messageData);
+        }
         appendVoiceMessage(msg.audioData, msg.duration, 'other', msg.id, msg.timestamp);
         playNotificationSound();
         sendPushNotification('Quickie', '🎤 Voice message received');
@@ -1333,12 +1766,10 @@
     });
 
     socket.on('rejoin-success', ({ roomId }) => {
-        // Silent rejoin - no visible notification
         console.log('✅ Reconnected successfully!');
         socket.emit('status-update', { roomId, status: 'online' });
     });
 
-    // ===== FIXED: Rejoin Failed Handler =====
     socket.on('rejoin-failed', ({ roomId }) => {
         console.log('Rejoin failed for room:', roomId);
         sessionStorage.removeItem('quickie_roomId');
@@ -1350,5 +1781,9 @@
         }
     });
 
+    // ===== Initialize =====
     otpInput.focus();
+
+    // Load chats from localStorage on startup
+    loadChatsFromLocal();
 })();
